@@ -2,6 +2,7 @@
 import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import UniverseHome from '../components/UniverseHome.vue';
+import { stageOf } from '../data/note-stage.js';
 
 const allNotes = await getCollection('notes', (n) => !n.data.private);
 const notes = allNotes.map((note) => {
@@ -13,9 +14,11 @@ const notes = allNotes.map((note) => {
     href: `/planet/${planet}/${subPath}`,
     planet,
     path: normalizedId,
+    // 学习路线阶段（离线按正文关键词预分类，见 src/data/note-stages.json）
+    stage: stageOf(note),
   };
 });
 ---
-<Base title="星系航图 · 知识星球">
+<Base title="星轨航图 · 知识星球">
   <UniverseHome client:load notes={notes} />
 </Base>

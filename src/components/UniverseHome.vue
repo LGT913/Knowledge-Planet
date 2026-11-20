@@ -1,5 +1,12 @@
 <template>
   <div ref="containerRef" class="shell">
+    <!-- 全局宇宙微光氛围层（纯装饰、穿透点击、不干扰现有层级） -->
+    <div class="universe-ambient-layer" aria-hidden="true">
+      <div class="ambient-nebula-glow"></div>
+      <div class="ambient-deep-starfield"></div>
+      <div class="ambient-global-meteor"></div>
+    </div>
+
     <header class="tabs" role="tablist" aria-label="视图切换">
       <button
         v-for="t in TABS"
@@ -16,8 +23,9 @@
 
     <!-- 第一屏：宇宙导航 -->
     <section class="stage-screen">
+      <HudTitle />
       <div class="stage">
-        <StarMap v-if="view === 'star'" />
+        <StarMap v-if="view === 'star'" :notes="notes" />
         <FateMap v-else :notes="notes" />
       </div>
 
@@ -26,6 +34,9 @@
         <span class="hint-label">探索作品集</span>
         <span class="hint-arrow">⌄</span>
       </button>
+
+      <!-- 仓库与联系方式：与右下角操作提示同一行，切换 Tab 时保持显示 -->
+      <SocialLinks />
     </section>
 
     <!-- 第二屏：作品集展示层 -->
@@ -69,8 +80,15 @@
             @click="idx !== currentIndex && goToProject(idx)"
           >
             <div class="media-container">
-              <!-- 预留演示录像插槽，无录像时提示待接入，不显示虚假内容 -->
-              <div class="video-placeholder">
+              <video
+                v-if="proj.video"
+                class="project-video"
+                :src="proj.video"
+                controls
+                playsinline
+                preload="metadata"
+              ></video>
+              <div v-else class="video-placeholder">
                 <span class="ph-icon">▶</span>
                 <span class="ph-text">演示录像准备中</span>
               </div>
@@ -119,6 +137,8 @@
 import { ref, onMounted } from 'vue';
 import StarMap from './StarMap.vue';
 import FateMap from './FateMap.vue';
+import SocialLinks from './SocialLinks.vue';
+import HudTitle from './HudTitle.vue';
 
 const props = defineProps({
   notes: {
@@ -245,6 +265,15 @@ const onPointerCancelCarousel = () => {
 // 项目作品集数据（遵循真实情况，不放伪造链接）
 const PROJECTS = [
   {
+    id: 'blog-system',
+    title: '博客系统：Spring Boot 全栈社区',
+    desc: '前后端分离的个人博客，包含文章发布、JWT 登录鉴权、评论、Redis 缓存与管理后台，已从单体部署演进到容器化上线。',
+    stack: ['Spring Boot', 'MyBatis-Plus', 'Redis', 'Vue 3'],
+    video: '/videos/blog-demo.mp4',
+    demo: '',
+    repo: '',
+  },
+  {
     id: 'knowledge-planet',
     title: '知识星球静态学习站与宇宙导图',
     desc: '基于 Astro 5 与 Vue 3 岛屿架构构建的双重视图导航系统，集成星系航图与时间线成长路线，支持纯静态部署。',
@@ -276,6 +305,106 @@ const PROJECTS = [
   color: #e8eefc;
 }
 .shell::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* 全局宇宙微光氛围层 */
+.universe-ambient-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.ambient-nebula-glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 25%, rgba(18, 42, 80, 0.16) 0%, rgba(5, 7, 15, 0) 70%);
+  animation: ambient-nebula-pulse 14s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+.ambient-deep-starfield {
+  position: absolute;
+  inset: -60px;
+  background-image:
+    radial-gradient(1px 1px at 120px 80px, rgba(235, 245, 255, 0.45), transparent),
+    radial-gradient(1.2px 1.2px at 340px 420px, rgba(200, 225, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 780px 180px, rgba(255, 235, 200, 0.35), transparent),
+    radial-gradient(1.4px 1.4px at 980px 620px, rgba(215, 235, 255, 0.45), transparent);
+  background-size: 800px 800px;
+  opacity: 0.45;
+  animation: ambient-stars-drift 100s linear infinite;
+  will-change: transform;
+}
+
+.ambient-global-meteor {
+  position: absolute;
+  top: 10%;
+  left: 5%;
+  width: 140px;
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: ambient-meteor-sweep 30s ease-in infinite;
+  animation-delay: 14s;
+}
+.ambient-global-meteor::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(201, 184, 134, 0.35) 60%, rgba(255, 255, 255, 0.9) 100%);
+  border-radius: 1px;
+}
+.ambient-global-meteor::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1.5px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px 2px rgba(230, 245, 255, 0.9);
+}
+
+@keyframes ambient-meteor-sweep {
+  0% {
+    opacity: 0;
+    transform: rotate(25deg) translate3d(-100px, 0, 0);
+  }
+  1.2% {
+    opacity: 0.85;
+  }
+  4.5% {
+    opacity: 0.85;
+  }
+  6% {
+    opacity: 0;
+    transform: rotate(25deg) translate3d(580px, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(25deg) translate3d(580px, 0, 0);
+  }
+}
+
+@keyframes ambient-nebula-pulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes ambient-stars-drift {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-25px, -15px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
 
 .tabs {
   position: fixed;
@@ -537,6 +666,16 @@ const PROJECTS = [
   align-items: center;
   justify-content: center;
   margin: 0 auto 20px;
+  overflow: hidden;
+}
+
+.project-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+  border-radius: 4px;
 }
 
 .video-placeholder {
@@ -691,6 +830,8 @@ const PROJECTS = [
   .proj-title { font-size: 18px; }
   .carousel-slide:not(.active) { opacity: 0.22 !important; }
   .carousel-stage { perspective: 1200px; }
+  .ambient-deep-starfield { animation: none !important; }
+  .ambient-global-meteor { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -699,6 +840,10 @@ const PROJECTS = [
   .scroll-down-hint,
   .back-to-top { transition: none; }
   .hint-arrow { animation: none; }
+  .back-arrow { animation: none; }
+  .ambient-nebula-glow,
+  .ambient-deep-starfield,
+  .ambient-global-meteor { animation: none !important; }
   .carousel-slide { transition: none !important; }
   .carousel-btn { transition: none; }
   .indicator-dot { transition: none; }

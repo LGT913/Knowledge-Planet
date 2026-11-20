@@ -66,6 +66,38 @@
       </g>
     </svg>
 
+    <!-- 纯装饰宇宙氛围层：位于 bg-canvas 之上、atlas 之下 -->
+    <div class="cosmic-ambient-layer" aria-hidden="true">
+      <!-- 1. 三层视差星空 -->
+      <div class="star-field star-field-far"></div>
+      <div class="star-field star-field-mid"></div>
+      <div class="star-field star-field-near"></div>
+
+      <!-- 2. 少量闪烁星点 (<= 40 个) -->
+      <div class="twinkle-container">
+        <span
+          v-for="s in twinkleStars"
+          :key="s.id"
+          class="twinkle-star"
+          :style="s.style"
+        ></span>
+      </div>
+
+      <!-- 3. 流星 (2 个掠过拖尾元素) -->
+      <div class="meteor-item meteor-1"></div>
+      <div class="meteor-item meteor-2"></div>
+
+      <!-- 4. 宇宙尘埃粒子 (<= 24 个，rAF 极慢漂浮) -->
+      <div ref="dustContainerRef" class="dust-container">
+        <span
+          v-for="d in dustList"
+          :key="d.id"
+          class="dust-particle"
+          :style="d.initStyle"
+        ></span>
+      </div>
+    </div>
+
     <!-- 交互 SVG：承载缩放和平移，仅保留轨道、轨道标记与星系节点 -->
     <svg
       class="atlas"
@@ -146,6 +178,12 @@
         <!-- 宏观星际椭圆 2: (810, 520) rotate(-30) -->
         <ellipse cx="810" cy="520" rx="640" ry="420" transform="rotate(-30 810 520)" class="orbit-solid faint" />
         <ellipse cx="810" cy="520" rx="658" ry="438" transform="rotate(-30 810 520)" class="orbit-dashed faint" />
+
+        <!-- 轨道流动光脉冲（流动光点效果，克制不闪烁） -->
+        <circle cx="610" cy="530" r="320" class="orbit-pulse" />
+        <circle cx="980" cy="500" r="230" class="orbit-pulse" />
+        <ellipse cx="810" cy="520" rx="760" ry="290" transform="rotate(22 810 520)" class="orbit-pulse" />
+        <ellipse cx="810" cy="520" rx="640" ry="420" transform="rotate(-30 810 520)" class="orbit-pulse faint" />
       </g>
 
       <!-- 航标标记 -->
@@ -163,9 +201,24 @@
         class="galaxy"
         :transform="`translate(${g.x} ${g.y})`"
       >
-        <a :href="g.path" @click="onNodeClick($event)">
+        <a
+          :href="g.path"
+          @click="onGalaxyClick($event, g)"
+          @mouseenter="hovered = g.id"
+          @mouseleave="hovered = null"
+          @focus="hovered = g.id"
+          @blur="hovered = null"
+        >
           <!-- 独立艺术造型分块 -->
           <g class="art-layer">
+            <!-- 节点外圈呼吸光晕 -->
+            <circle
+              class="galaxy-halo"
+              :cx="g.id === 'blog-dev' ? -8 : 0"
+              :cy="g.id === 'blog-dev' ? 8 : 0"
+              :r="getGalaxyHaloRadius(g.id)"
+            />
+
             <!-- 1. knowledge: 月面球 -->
             <g v-if="g.id === 'knowledge'" class="art-moon">
               <!-- 外侧金色机械半环 -->
@@ -249,23 +302,26 @@
                 <rect x="55" y="-3" width="2.5" height="6" fill="#e8d9a8" stroke="#c9b886" stroke-width="0.6" />
               </g>
 
-              <!-- 三层同心机械环（含虚线刻度环） -->
-              <circle cx="0" cy="0" r="29" fill="none" stroke="#71bcf5" stroke-width="0.9" stroke-opacity="0.55" />
-              <circle cx="0" cy="0" r="43" fill="none" stroke="#c9b886" stroke-width="1.2" stroke-dasharray="3 5" stroke-opacity="0.95" />
-              <circle cx="0" cy="0" r="56" fill="none" stroke="#a4c4e8" stroke-width="1.1" stroke-opacity="0.75" />
+              <!-- 缓慢公转的机械环圈与小节点 -->
+              <g class="ringworld-rotator">
+                <!-- 三层同心机械环（含虚线刻度环） -->
+                <circle cx="0" cy="0" r="29" fill="none" stroke="#71bcf5" stroke-width="0.9" stroke-opacity="0.55" />
+                <circle cx="0" cy="0" r="43" fill="none" stroke="#c9b886" stroke-width="1.2" stroke-dasharray="3 5" stroke-opacity="0.95" />
+                <circle cx="0" cy="0" r="56" fill="none" stroke="#a4c4e8" stroke-width="1.1" stroke-opacity="0.75" />
 
-              <!-- 环绕的 3 个小节点 -->
-              <g transform="translate(35.2, 24.7)">
-                <circle r="3.6" fill="#0d1f38" stroke="#e8d9a8" stroke-width="1" />
-                <circle r="1.6" fill="#ffd875" />
-              </g>
-              <g transform="translate(-39.0, 18.2)">
-                <circle r="3.6" fill="#0d1f38" stroke="#e8d9a8" stroke-width="1" />
-                <circle r="1.6" fill="#ffd875" />
-              </g>
-              <g transform="translate(3.7, -42.8)">
-                <circle r="3.6" fill="#0d1f38" stroke="#e8d9a8" stroke-width="1" />
-                <circle r="1.6" fill="#ffd875" />
+                <!-- 环绕的 3 个小节点 -->
+                <g transform="translate(35.2, 24.7)">
+                  <circle r="3.6" fill="#0d1f38" stroke="#e8d9a8" stroke-width="1" />
+                  <circle r="1.6" fill="#ffd875" />
+                </g>
+                <g transform="translate(-39.0, 18.2)">
+                  <circle r="3.6" fill="#0d1f38" stroke="#e8d9a8" stroke-width="1" />
+                  <circle r="1.6" fill="#ffd875" />
+                </g>
+                <g transform="translate(3.7, -42.8)">
+                  <circle r="3.6" fill="#0d1f38" stroke="#e8d9a8" stroke-width="1" />
+                  <circle r="1.6" fill="#ffd875" />
+                </g>
               </g>
 
               <!-- 中心小核心 -->
@@ -278,36 +334,39 @@
               <!-- 内部发光 -->
               <circle cx="-2" cy="4" r="32" fill="url(#grad-crystal-glow)" />
 
-              <!-- 六边形/多边形切面（若干三角面，明暗不同） -->
-              <g class="crystal-facets">
-                <path d="M 0 -48 L -40 -10 L -3 6 Z" fill="#48d4a4" opacity="0.75" />
-                <path d="M 0 -48 L 40 -10 L -3 6 Z" fill="#7dfcd2" opacity="0.9" />
-                <path d="M 40 -10 L 30 26 L -3 6 Z" fill="#229b76" opacity="0.85" />
-                <path d="M 30 26 L 0 48 L -3 6 Z" fill="#105742" opacity="0.95" />
-                <path d="M 0 48 L -30 26 L -3 6 Z" fill="#176a52" opacity="0.9" />
-                <path d="M -30 26 L -40 -10 L -3 6 Z" fill="#2fa580" opacity="0.8" />
+              <!-- 缓慢自转的切面多面体 -->
+              <g class="crystal-rotator">
+                <!-- 六边形/多面体切面（若干三角面，明暗不同） -->
+                <g class="crystal-facets">
+                  <path d="M 0 -48 L -40 -10 L -3 6 Z" fill="#48d4a4" opacity="0.75" />
+                  <path d="M 0 -48 L 40 -10 L -3 6 Z" fill="#7dfcd2" opacity="0.9" />
+                  <path d="M 40 -10 L 30 26 L -3 6 Z" fill="#229b76" opacity="0.85" />
+                  <path d="M 30 26 L 0 48 L -3 6 Z" fill="#105742" opacity="0.95" />
+                  <path d="M 0 48 L -30 26 L -3 6 Z" fill="#176a52" opacity="0.9" />
+                  <path d="M -30 26 L -40 -10 L -3 6 Z" fill="#2fa580" opacity="0.8" />
+                </g>
+
+                <!-- 外切棱与金色轮廓 -->
+                <path
+                  d="M 0 -48 L 40 -10 L 30 26 L 0 48 L -30 26 L -40 -10 Z"
+                  fill="none"
+                  stroke="#c9b886"
+                  stroke-width="0.9"
+                  stroke-opacity="0.65"
+                />
+                <path d="M -40 -10 L -3 6 L 40 -10" fill="none" stroke="#e8fdf5" stroke-width="1" stroke-opacity="0.75" />
+
+                <!-- 一条贯穿的高光棱线 -->
+                <path
+                  d="M 0 -48 L -3 6 L 0 48"
+                  fill="none"
+                  stroke="#ffffff"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  class="crystal-spine"
+                />
+                <circle cx="-3" cy="6" r="2.6" fill="#ffffff" class="crystal-star" />
               </g>
-
-              <!-- 外切棱与金色轮廓 -->
-              <path
-                d="M 0 -48 L 40 -10 L 30 26 L 0 48 L -30 26 L -40 -10 Z"
-                fill="none"
-                stroke="#c9b886"
-                stroke-width="0.9"
-                stroke-opacity="0.65"
-              />
-              <path d="M -40 -10 L -3 6 L 40 -10" fill="none" stroke="#e8fdf5" stroke-width="1" stroke-opacity="0.75" />
-
-              <!-- 一条贯穿的高光棱线 -->
-              <path
-                d="M 0 -48 L -3 6 L 0 48"
-                fill="none"
-                stroke="#ffffff"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                class="crystal-spine"
-              />
-              <circle cx="-3" cy="6" r="2.6" fill="#ffffff" class="crystal-star" />
             </g>
 
             <!-- 4. blog-dev: 彗核 -->
@@ -417,6 +476,16 @@
           <text class="sub" :y="GALAXY_ART_CONFIG[g.id].subY">{{ g.sub }}</text>
         </a>
       </g>
+
+      <!-- 点击星系产生的扩散波纹 -->
+      <circle
+        v-if="clickRipple"
+        :key="clickRipple.id"
+        :cx="clickRipple.x"
+        :cy="clickRipple.y"
+        r="50"
+        class="galaxy-click-ripple"
+      />
     </svg>
 
     <!-- 竖屏提示层：仅在移动端竖屏时显示 -->
@@ -436,6 +505,19 @@
 
     <p class="uid">UID:147730179</p>
     <p class="hint">拖拽平移 <b>·</b> 滚轮缩放 <b>·</b> 点击星系进入星球</p>
+
+    <!-- 星系档案：悬浮或聚焦星系时显示对应知识文件 -->
+    <aside v-if="hoverGalaxy" class="galaxy-panel" aria-live="polite">
+      <p class="gp-eyebrow">星系档案</p>
+      <h3 class="gp-title">{{ hoverGalaxy.title }}</h3>
+      <p class="gp-sub">{{ hoverGalaxy.sub }}</p>
+      <p class="gp-count">{{ hoverNotes.length }} 篇文档</p>
+      <ul v-if="hoverNotes.length" class="gp-list">
+        <li v-for="n in hoverNotes.slice(0, 3)" :key="n.href">{{ n.title }}</li>
+      </ul>
+      <p v-else class="gp-empty">该星系暂无文档，等待归档</p>
+      <p class="gp-more">点击进入星系 →</p>
+    </aside>
   </section>
 </template>
 
@@ -445,11 +527,55 @@ import { usePanZoom } from '../composables/usePanZoom';
 import { GALAXIES } from '../data/galaxies';
 
 const galaxies = GALAXIES;
+
+const props = defineProps({
+  notes: { type: Array, default: () => [] },
+});
+
+const hovered = ref(null);
+const hoverGalaxy = computed(() => galaxies.find((g) => g.id === hovered.value) || null);
+const hoverNotes = computed(() => {
+  const g = hoverGalaxy.value;
+  if (!g) return [];
+  return props.notes.filter((n) => g.planets.includes(n.planet));
+});
+
 const containerRef = ref(null);
 const isMobile = ref(false); // 恒为 false，确保移动端触摸拖拽可用
 const { state, isDragging, onPointerDown, isClick } = usePanZoom(containerRef, isMobile);
 const transform = computed(() => `translate(${state.x}px, ${state.y}px) scale(${state.scale})`);
 const onNodeClick = (e) => { if (!isClick()) e.preventDefault(); };
+
+// 外圈光晕半径映射
+const getGalaxyHaloRadius = (id) => {
+  switch (id) {
+    case 'knowledge': return 58;
+    case 'algorithm': return 58;
+    case 'projects': return 50;
+    case 'blog-dev': return 34;
+    case 'growth': return 43;
+    default: return 50;
+  }
+};
+
+// 点击星系波纹扩散状态
+const clickRipple = ref(null);
+let rippleTimer = null;
+const triggerRipple = (g) => {
+  clickRipple.value = { x: g.x, y: g.y, id: Date.now() };
+  if (rippleTimer) clearTimeout(rippleTimer);
+  rippleTimer = setTimeout(() => {
+    clickRipple.value = null;
+  }, 900);
+};
+
+const onGalaxyClick = (e, g) => {
+  if (!isClick()) {
+    e.preventDefault();
+    return;
+  }
+  triggerRipple(g);
+};
 
 // 竖屏提示层触发条件：window.innerWidth < 768 && window.innerHeight > window.innerWidth
 const showRotateTip = ref(false);
@@ -458,15 +584,123 @@ const checkOrientation = () => {
   showRotateTip.value = window.innerWidth < 768 && window.innerHeight > window.innerWidth;
 };
 
+// 确定性线性同余发生器 (LCG)，确保 SSR 与 CSR hydration 完全一致
+function createLcg(initialSeed) {
+  let s = initialSeed;
+  return function () {
+    s = (1664525 * s + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+// 32 个闪烁星点 (6~12s 周期 opacity 变化，不同 animation-delay)
+const twinkleRng = createLcg(5201314);
+const twinkleStars = Array.from({ length: 32 }, (_, i) => {
+  const x = (twinkleRng() * 96 + 2).toFixed(1);
+  const y = (twinkleRng() * 92 + 4).toFixed(1);
+  const size = (twinkleRng() * 1.5 + 1.2).toFixed(1);
+  const duration = (twinkleRng() * 6 + 6).toFixed(1);
+  const delay = (-twinkleRng() * 12).toFixed(1);
+  const minOp = (twinkleRng() * 0.12 + 0.06).toFixed(2);
+  const maxOp = (twinkleRng() * 0.45 + 0.45).toFixed(2);
+  return {
+    id: `twinkle-${i}`,
+    style: {
+      left: `${x}%`,
+      top: `${y}%`,
+      width: `${size}px`,
+      height: `${size}px`,
+      '--twinkle-min': minOp,
+      '--twinkle-max': maxOp,
+      animationDuration: `${duration}s`,
+      animationDelay: `${delay}s`,
+    },
+  };
+});
+
+// 20 个宇宙尘埃微粒 (rAF 极慢漂浮，只改 transform，速度极慢)
+const DUST_COUNT = 20;
+const dustRng = createLcg(7721839);
+const dustList = Array.from({ length: DUST_COUNT }, (_, i) => {
+  const x = dustRng() * 100;
+  const y = dustRng() * 100;
+  const size = (0.8 + dustRng() * 1.6).toFixed(1);
+  const opacity = (0.15 + dustRng() * 0.32).toFixed(2);
+  return {
+    id: `dust-${i}`,
+    initStyle: {
+      left: `${x.toFixed(1)}%`,
+      top: `${y.toFixed(1)}%`,
+      width: `${size}px`,
+      height: `${size}px`,
+      opacity,
+    },
+  };
+});
+
+// 宇宙尘埃容器引用与 rAF 动画句柄
+const dustContainerRef = ref(null);
+let dustRafId = null;
+
+const initDustRaf = () => {
+  if (typeof window === 'undefined') return;
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersReduced) return;
+
+  const dustEls = dustContainerRef.value ? Array.from(dustContainerRef.value.children) : [];
+  if (!dustEls.length) return;
+
+  const isMobileView = window.innerWidth < 768;
+  const activeCount = isMobileView ? Math.floor(dustEls.length / 2) : dustEls.length;
+  for (let i = activeCount; i < dustEls.length; i++) {
+    dustEls[i].style.display = 'none';
+  }
+
+  const dustData = dustEls.slice(0, activeCount).map(() => {
+    const angle = dustRng() * Math.PI * 2;
+    const speed = 0.06 + dustRng() * 0.08; // 极慢漂浮: 0.06 ~ 0.14 px/frame
+    return {
+      x: 0,
+      y: 0,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      maxX: 40,
+      maxY: 30,
+    };
+  });
+
+  const step = () => {
+    for (let i = 0; i < dustData.length; i++) {
+      const p = dustData[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x > p.maxX || p.x < -p.maxX) p.vx = -p.vx;
+      if (p.y > p.maxY || p.y < -p.maxY) p.vy = -p.vy;
+      dustEls[i].style.transform = `translate3d(${p.x.toFixed(2)}px, ${p.y.toFixed(2)}px, 0)`;
+    }
+    dustRafId = requestAnimationFrame(step);
+  };
+  dustRafId = requestAnimationFrame(step);
+};
+
 onMounted(() => {
   checkOrientation();
   window.addEventListener('resize', checkOrientation);
   window.addEventListener('orientationchange', checkOrientation);
+  initDustRaf();
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkOrientation);
   window.removeEventListener('orientationchange', checkOrientation);
+  if (dustRafId) {
+    cancelAnimationFrame(dustRafId);
+    dustRafId = null;
+  }
+  if (rippleTimer) {
+    clearTimeout(rippleTimer);
+    rippleTimer = null;
+  }
 });
 
 // 五大星系艺术造型与自适应标签排版映射表
@@ -508,17 +742,8 @@ const GALAXY_ART_CONFIG = {
   },
 };
 
-// 确定性线性同余发生器 (LCG)，确保 SSR 与 CSR hydration 完全一致
-function createLcg(initialSeed) {
-  let s = initialSeed;
-  return function () {
-    s = (1664525 * s + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
-
-// 130 个静态星点
-const starRng = createLcg(147730179);
+  // 130 个静态星点
+  const starRng = createLcg(147730179);
 const stars = Array.from({ length: 130 }, () => {
   const x = starRng();
   const y = starRng();
@@ -628,11 +853,318 @@ const orbitMarks = [
   height: 100%;
   transform-origin: 0 0;
   will-change: transform;
+  z-index: 2;
+}
+
+/* 纯装饰宇宙氛围层：位于 bg-canvas 之上、atlas 之下 */
+.cosmic-ambient-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* 1. 三层视差星空 */
+.star-field {
+  position: absolute;
+  inset: -120px;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.star-field-far {
+  background-image:
+    radial-gradient(1px 1px at 35px 50px, rgba(230, 242, 255, 0.7), transparent),
+    radial-gradient(1.2px 1.2px at 180px 220px, rgba(190, 215, 255, 0.65), transparent),
+    radial-gradient(1px 1px at 320px 110px, rgba(255, 245, 225, 0.6), transparent),
+    radial-gradient(1.4px 1.4px at 490px 380px, rgba(210, 230, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 260px 470px, rgba(235, 240, 255, 0.6), transparent);
+  background-size: 620px 620px;
+  opacity: 0.38;
+  animation: drift-far 120s linear infinite;
+}
+
+.star-field-mid {
+  background-image:
+    radial-gradient(1.2px 1.2px at 85px 120px, rgba(240, 245, 255, 0.8), transparent),
+    radial-gradient(1.6px 1.6px at 270px 310px, rgba(210, 235, 255, 0.75), transparent),
+    radial-gradient(1.3px 1.3px at 450px 160px, rgba(255, 230, 190, 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 640px 520px, rgba(220, 240, 255, 0.8), transparent),
+    radial-gradient(1.2px 1.2px at 150px 610px, rgba(200, 225, 255, 0.65), transparent);
+  background-size: 820px 820px;
+  opacity: 0.52;
+  animation: drift-mid 80s linear infinite;
+}
+
+.star-field-near {
+  background-image:
+    radial-gradient(1.5px 1.5px at 110px 190px, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(2px 2px at 380px 420px, rgba(225, 245, 255, 0.85), transparent),
+    radial-gradient(1.6px 1.6px at 620px 210px, rgba(255, 240, 210, 0.8), transparent),
+    radial-gradient(1.8px 1.8px at 840px 680px, rgba(210, 240, 255, 0.85), transparent),
+    radial-gradient(1.4px 1.4px at 290px 790px, rgba(240, 245, 255, 0.75), transparent);
+  background-size: 1060px 1060px;
+  opacity: 0.68;
+  animation: drift-near 50s linear infinite;
+}
+
+@keyframes drift-far {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-35px, -20px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes drift-mid {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(45px, -35px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes drift-near {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-60px, 40px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* 2. 闪烁星点 */
+.twinkle-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.twinkle-star {
+  position: absolute;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 5px rgba(220, 240, 255, 0.85);
+  animation-name: star-twinkle;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+  will-change: opacity, transform;
+}
+@keyframes star-twinkle {
+  0%, 100% { opacity: var(--twinkle-min, 0.1); transform: scale(0.8); }
+  50% { opacity: var(--twinkle-max, 0.7); transform: scale(1.25); }
+}
+
+/* 3. 流星掠过 (斜向拖尾，轨迹从左上到右下，不遮挡中心节点) */
+.meteor-item {
+  position: absolute;
+  width: 140px;
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.meteor-item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(180, 215, 255, 0.45) 60%, rgba(255, 255, 255, 0.95) 100%);
+  border-radius: 1px;
+}
+.meteor-item::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px 2px rgba(230, 245, 255, 0.95);
+}
+
+.meteor-1 {
+  top: 7%;
+  left: 8%;
+  animation: meteor-sweep-1 16s ease-in infinite;
+  animation-delay: 2.5s;
+}
+
+.meteor-2 {
+  top: 56%;
+  left: 20%;
+  animation: meteor-sweep-2 23s ease-in infinite;
+  animation-delay: 10s;
+}
+
+@keyframes meteor-sweep-1 {
+  0% {
+    opacity: 0;
+    transform: rotate(30deg) translate3d(-100px, 0, 0);
+  }
+  1.5% {
+    opacity: 0.9;
+  }
+  6% {
+    opacity: 0.9;
+  }
+  8% {
+    opacity: 0;
+    transform: rotate(30deg) translate3d(580px, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(30deg) translate3d(580px, 0, 0);
+  }
+}
+
+@keyframes meteor-sweep-2 {
+  0% {
+    opacity: 0;
+    transform: rotate(26deg) translate3d(-80px, 0, 0);
+  }
+  1.2% {
+    opacity: 0.9;
+  }
+  5% {
+    opacity: 0.9;
+  }
+  6.5% {
+    opacity: 0;
+    transform: rotate(26deg) translate3d(520px, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(26deg) translate3d(520px, 0, 0);
+  }
+}
+
+/* 4. 宇宙尘埃粒子 */
+.dust-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.dust-particle {
+  position: absolute;
+  border-radius: 50%;
+  background: #cce2ff;
+  box-shadow: 0 0 3px rgba(200, 225, 255, 0.6);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* 5. 轨道流动光脉冲 */
+.orbit-pulse {
+  fill: none;
+  stroke: #ffebb0;
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-dasharray: 8 460;
+  stroke-opacity: 0.7;
+  filter: drop-shadow(0 0 4px rgba(255, 235, 176, 0.8));
+  animation: orbit-flow-run 45s linear infinite;
+  will-change: stroke-dashoffset;
+  pointer-events: none;
+}
+.orbit-pulse.faint {
+  stroke: #bde0fe;
+  stroke-width: 1.2px;
+  stroke-dasharray: 6 560;
+  stroke-opacity: 0.45;
+  filter: drop-shadow(0 0 3px rgba(189, 224, 254, 0.6));
+  animation-duration: 60s;
+  animation-direction: reverse;
+}
+@keyframes orbit-flow-run {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -936; }
+}
+
+/* 6 & 7. 星系外圈光晕呼吸与自转 */
+.galaxy-halo {
+  fill: none;
+  stroke: rgba(201, 184, 134, 0.52);
+  stroke-width: 1.8px;
+  filter: drop-shadow(0 0 10px rgba(201, 184, 134, 0.55));
+  animation: galaxy-halo-breathe 8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+.galaxy:nth-child(1) .galaxy-halo { animation-duration: 7s; animation-delay: -1s; }
+.galaxy:nth-child(2) .galaxy-halo { animation-duration: 8.5s; animation-delay: -3.2s; }
+.galaxy:nth-child(3) .galaxy-halo { animation-duration: 6.8s; animation-delay: -2s; }
+.galaxy:nth-child(4) .galaxy-halo { animation-duration: 9.2s; animation-delay: -4.5s; }
+.galaxy:nth-child(5) .galaxy-halo { animation-duration: 8s; animation-delay: -2.8s; }
+
+@keyframes galaxy-halo-breathe {
+  0%, 100% {
+    transform: scale(0.93);
+    opacity: 0.32;
+  }
+  50% {
+    transform: scale(1.14);
+    opacity: 0.92;
+  }
+}
+
+.moon-mech-ring {
+  transform-origin: 0 0;
+  animation: spin-cw 90s linear infinite;
+  will-change: transform;
+}
+.ringworld-rotator {
+  transform-origin: 0 0;
+  animation: spin-ccw 45s linear infinite;
+  will-change: transform;
+}
+.crystal-rotator {
+  transform-origin: 0 0;
+  animation: spin-cw 75s linear infinite;
+  will-change: transform;
+}
+.comet-dust {
+  transform-origin: -8px 8px;
+  animation: spin-ccw 55s linear infinite;
+  will-change: transform;
+}
+.city-lights {
+  transform-origin: 0 0;
+  animation: spin-cw 100s linear infinite;
+  will-change: transform;
+}
+
+@keyframes spin-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes spin-ccw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+/* 8. 点击波纹扩散环 */
+.galaxy-click-ripple {
+  fill: none;
+  stroke: #ffebb8;
+  stroke-width: 2px;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ripple-spread 0.85s cubic-bezier(0.12, 0.8, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+@keyframes ripple-spread {
+  0% {
+    transform: scale(0.25);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
 }
 
 .frame {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   inset: 8px;
   border: 1px solid rgba(201, 184, 134, 0.34);
   pointer-events: none;
@@ -651,7 +1183,7 @@ const orbitMarks = [
 
 .uid {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   left: 5.4%;
   bottom: 15px;
   margin: 0;
@@ -664,7 +1196,7 @@ const orbitMarks = [
 
 .hint {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   right: 5.5%;
   bottom: 14px;
   margin: 0;
@@ -677,6 +1209,84 @@ const orbitMarks = [
   color: #c9b886;
   font-weight: 400;
   margin: 0 5px;
+}
+
+/* 星系档案悬浮面板 */
+.galaxy-panel {
+  display: none;
+}
+@media (min-width: 768px) {
+  .galaxy-panel {
+    position: absolute;
+    z-index: 7;
+    right: 4.6%;
+    top: 34%;
+    display: block;
+    width: 236px;
+    padding: 16px 18px 14px;
+    background: rgba(8, 17, 32, 0.82);
+    border: 1px solid rgba(201, 184, 134, 0.28);
+    border-radius: 3px;
+    box-shadow: 0 12px 40px rgba(3, 7, 15, 0.65);
+    pointer-events: none;
+    animation: panel-in 0.28s ease both;
+  }
+}
+.gp-eyebrow {
+  margin: 0 0 6px;
+  color: rgba(201, 184, 134, 0.6);
+  font-size: 10px;
+  letter-spacing: 3px;
+}
+.gp-title {
+  margin: 0 0 4px;
+  color: #f1e4bd;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 2px;
+}
+.gp-sub {
+  margin: 0 0 10px;
+  color: rgba(168, 186, 210, 0.68);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+}
+.gp-count {
+  margin: 0 0 8px;
+  color: #8ab4ff;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.gp-list {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid rgba(201, 184, 134, 0.14);
+}
+.gp-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(84, 118, 166, 0.14);
+  color: rgba(198, 212, 232, 0.8);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-empty {
+  margin: 0 0 10px;
+  color: rgba(150, 164, 186, 0.55);
+  font-size: 11px;
+}
+.gp-more {
+  margin: 0;
+  color: rgba(201, 184, 134, 0.55);
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 /* 双层轨道：主轨道实线 + 外层虚线刻度圆环 */
@@ -741,9 +1351,30 @@ const orbitMarks = [
   filter: drop-shadow(0 0 4px #3be5b0);
 }
 
-/* Hover 状态：整体提亮发光，不改位置 */
+/* Hover 状态：整体提亮发光，加速自转 */
 .galaxy:hover {
   filter: drop-shadow(0 0 16px rgba(201, 184, 134, 0.45)) brightness(1.22);
+}
+.galaxy:hover .galaxy-halo {
+  stroke: #fff1bd;
+  stroke-opacity: 0.95;
+  filter: drop-shadow(0 0 16px rgba(255, 241, 189, 0.85));
+  animation-duration: 3.5s;
+}
+.galaxy:hover .moon-mech-ring {
+  animation-duration: 25s;
+}
+.galaxy:hover .ringworld-rotator {
+  animation-duration: 15s;
+}
+.galaxy:hover .crystal-rotator {
+  animation-duration: 22s;
+}
+.galaxy:hover .comet-dust {
+  animation-duration: 18s;
+}
+.galaxy:hover .city-lights {
+  animation-duration: 28s;
 }
 .galaxy:hover .label {
   fill: #ffffff;
@@ -818,7 +1449,7 @@ const orbitMarks = [
   }
 }
 
-/* 移动端媒体查询适配 */
+/* 移动端媒体查询适配与动效降级 */
 @media (max-width: 767px) {
   .frame {
     inset: 6px;
@@ -832,15 +1463,38 @@ const orbitMarks = [
     bottom: 10px;
     font-size: 9px;
   }
-}
-
-/* 无障碍偏好：关闭粒子位移动画与过度过渡 */
-@media (prefers-reduced-motion: reduce) {
-  .particle {
+  /* 移动端降级：禁用视差移动，粒子数量减半，保留呼吸与闪烁 */
+  .star-field-far,
+  .star-field-mid,
+  .star-field-near {
     animation: none !important;
   }
+  .dust-particle:nth-child(n+11) {
+    display: none !important;
+  }
+}
+
+/* 无障碍偏好：关闭所有循环动效与过度过渡 */
+@media (prefers-reduced-motion: reduce) {
+  .particle,
+  .star-field-far,
+  .star-field-mid,
+  .star-field-near,
+  .twinkle-star,
+  .meteor-item,
+  .dust-particle,
+  .orbit-pulse,
+  .galaxy-halo,
+  .moon-mech-ring,
+  .ringworld-rotator,
+  .crystal-rotator,
+  .comet-dust,
+  .city-lights,
   .rotate-icon {
-    animation: none;
+    animation: none !important;
+  }
+  .galaxy-click-ripple {
+    display: none !important;
   }
   .galaxy {
     transition: none;

@@ -56,6 +56,38 @@
       </g>
     </svg>
 
+    <!-- 纯装饰宇宙氛围层：位于 bg-canvas 之上、atlas 之下 -->
+    <div class="cosmic-ambient-layer" aria-hidden="true">
+      <!-- 1. 三层视差星空 -->
+      <div class="star-field star-field-far"></div>
+      <div class="star-field star-field-mid"></div>
+      <div class="star-field star-field-near"></div>
+
+      <!-- 2. 少量闪烁星点 (26 个) -->
+      <div class="twinkle-container">
+        <span
+          v-for="s in twinkleStars"
+          :key="s.id"
+          class="twinkle-star"
+          :style="s.style"
+        ></span>
+      </div>
+
+      <!-- 3. 流星 (仅从时间线上方与下方掠过，不穿过卡片文字区域) -->
+      <div class="meteor-item fate-meteor-upper"></div>
+      <div class="meteor-item fate-meteor-lower"></div>
+
+      <!-- 4. 宇宙尘埃粒子 (18 个，rAF 极慢漂浮) -->
+      <div ref="dustContainerRef" class="dust-container">
+        <span
+          v-for="d in dustList"
+          :key="d.id"
+          class="dust-particle"
+          :style="d.initStyle"
+        ></span>
+      </div>
+    </div>
+
     <!-- 交互式时间线画卷（随拖拽平移和缩放） -->
     <svg
       class="atlas"
@@ -72,7 +104,7 @@
         <linearGradient id="thumb-four" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#572d73"/><stop offset=".45" stop-color="#bf588c"/><stop offset="1" stop-color="#112b5b"/></linearGradient>
       </defs>
 
-      <!-- 阶段到卡片的竖直细线 -->
+      <!-- 阶段到卡片的竖直细线：只画节点到首卡之间，避免被卡片遮住 -->
       <g class="vertical-lines">
         <line
           v-for="stage in stageColumns"
@@ -81,12 +113,35 @@
           :x1="stage.x"
           :y1="stage.nodeY + 14"
           :x2="stage.x"
-          :y2="stage.bottomY"
+          :y2="stage.firstCardY"
+        />
+        <!-- 多张卡片时在左侧画一条极淡的连接脊线 -->
+        <line
+          v-for="stage in stageColumns"
+          v-show="stage.cardRows > 1"
+          :key="`vspine-${stage.id}`"
+          class="stage-spine"
+          :x1="stage.x - 84"
+          :y1="stage.firstCardY + 6"
+          :x2="stage.x - 84"
+          :y2="stage.lastCardY - 6"
+        />
+        <!-- 垂直分支连线微弱流动光脉冲 -->
+        <line
+          v-for="stage in stageColumns"
+          :key="`vflow-${stage.id}`"
+          class="stage-v-flow"
+          :x1="stage.x"
+          :y1="stage.nodeY + 14"
+          :x2="stage.x"
+          :y2="stage.firstCardY"
         />
       </g>
 
       <!-- 水平主线：y 取 300，x 从 120 到 1880，不加箭头/章节条/说明文字 -->
       <line class="main-line" x1="120" y1="300" x2="1880" y2="300" />
+      <!-- 水平主线流动光脉冲（从左向右缓慢流动） -->
+      <line class="main-line-flow" x1="120" y1="300" x2="1880" y2="300" />
 
       <!-- 10 个阶段节点 -->
       <g v-for="stage in stageColumns" :key="`node-${stage.id}`" class="stage-node-group">
@@ -94,6 +149,11 @@
         <text class="stage-name" :x="stage.x" :y="stage.nodeY - 28" text-anchor="middle">
           {{ stage.name }}
         </text>
+
+        <!-- 节点外圈呼吸光晕与微自转刻度环 -->
+        <circle class="stage-node-halo" :cx="stage.x" :cy="stage.nodeY" r="22" />
+        <circle class="stage-node-rotor" :cx="stage.x" :cy="stage.nodeY" r="17" />
+
         <!-- 节点为金色小圆环 + 阶段序号 -->
         <circle class="stage-ring" :cx="stage.x" :cy="stage.nodeY" r="14" />
         <text class="stage-num" :x="stage.x" :y="stage.nodeY" text-anchor="middle" dominant-baseline="central">
@@ -127,12 +187,15 @@
           </a>
         </g>
 
-        <!-- 超出 3 张时在第 4 张位置显示 +N（不可点击） -->
-        <g
+        <!-- 超出 3 张时在第 4 张位置显示 +N，点击进入该阶段文章汇总页 -->
+        <a
           v-if="stage.hasOverflow"
           class="overflow-card"
+          :href="`/stage/${stage.id}`"
           :transform="`translate(${stage.x} ${stage.overflowY})`"
+          @click="onNodeClick($event)"
         >
+          <title>{{ stage.name }} 全部 {{ stage.notes.length }} 篇笔记</title>
           <rect class="overflow-bg" x="-75" y="0" width="150" height="88" rx="4" />
           <text class="overflow-count" x="0" y="47" text-anchor="middle">
             +{{ stage.overflowCount }}
@@ -140,7 +203,7 @@
           <text class="overflow-sub" x="0" y="65" text-anchor="middle">
             更多笔记
           </text>
-        </g>
+        </a>
 
         <!-- 没有笔记的阶段：占位卡，文案“待补充”，虚线边框、降透明度（不可点击） -->
         <g
@@ -203,15 +266,119 @@ const checkOrientation = () => {
   showRotateTip.value = window.innerWidth < 768 && window.innerHeight > window.innerWidth;
 };
 
+// 确定性线性同余发生器 (LCG)，确保 SSR 与 CSR hydration 完全一致
+function createLcg(initialSeed) {
+  let s = initialSeed;
+  return function () {
+    s = (1664525 * s + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+// 26 个闪烁微星 (6~12s 周期呼吸)
+const fateTwinkleRng = createLcg(6182943);
+const twinkleStars = Array.from({ length: 26 }, (_, i) => {
+  const x = (fateTwinkleRng() * 96 + 2).toFixed(1);
+  const y = (fateTwinkleRng() * 92 + 4).toFixed(1);
+  const size = (fateTwinkleRng() * 1.5 + 1.2).toFixed(1);
+  const duration = (fateTwinkleRng() * 6 + 6).toFixed(1);
+  const delay = (-fateTwinkleRng() * 12).toFixed(1);
+  const minOp = (fateTwinkleRng() * 0.12 + 0.06).toFixed(2);
+  const maxOp = (fateTwinkleRng() * 0.45 + 0.45).toFixed(2);
+  return {
+    id: `fate-twinkle-${i}`,
+    style: {
+      left: `${x}%`,
+      top: `${y}%`,
+      width: `${size}px`,
+      height: `${size}px`,
+      '--twinkle-min': minOp,
+      '--twinkle-max': maxOp,
+      animationDuration: `${duration}s`,
+      animationDelay: `${delay}s`,
+    },
+  };
+});
+
+// 18 个宇宙尘埃微粒 (rAF 极慢漂浮，只改 transform)
+const DUST_COUNT = 18;
+const fateDustRng = createLcg(4928172);
+const dustList = Array.from({ length: DUST_COUNT }, (_, i) => {
+  const x = fateDustRng() * 100;
+  const y = fateDustRng() * 100;
+  const size = (0.8 + fateDustRng() * 1.5).toFixed(1);
+  const opacity = (0.14 + fateDustRng() * 0.3).toFixed(2);
+  return {
+    id: `fate-dust-${i}`,
+    initStyle: {
+      left: `${x.toFixed(1)}%`,
+      top: `${y.toFixed(1)}%`,
+      width: `${size}px`,
+      height: `${size}px`,
+      opacity,
+    },
+  };
+});
+
+// 宇宙尘埃容器引用与 rAF 动画句柄
+const dustContainerRef = ref(null);
+let dustRafId = null;
+
+const initDustRaf = () => {
+  if (typeof window === 'undefined') return;
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersReduced) return;
+
+  const dustEls = dustContainerRef.value ? Array.from(dustContainerRef.value.children) : [];
+  if (!dustEls.length) return;
+
+  const isMobileView = window.innerWidth < 768;
+  const activeCount = isMobileView ? Math.floor(dustEls.length / 2) : dustEls.length;
+  for (let i = activeCount; i < dustEls.length; i++) {
+    dustEls[i].style.display = 'none';
+  }
+
+  const dustData = dustEls.slice(0, activeCount).map(() => {
+    const angle = fateDustRng() * Math.PI * 2;
+    const speed = 0.05 + fateDustRng() * 0.07; // 速度极慢: 0.05 ~ 0.12 px/frame
+    return {
+      x: 0,
+      y: 0,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      maxX: 40,
+      maxY: 30,
+    };
+  });
+
+  const step = () => {
+    for (let i = 0; i < dustData.length; i++) {
+      const p = dustData[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x > p.maxX || p.x < -p.maxX) p.vx = -p.vx;
+      if (p.y > p.maxY || p.y < -p.maxY) p.vy = -p.vy;
+      dustEls[i].style.transform = `translate3d(${p.x.toFixed(2)}px, ${p.y.toFixed(2)}px, 0)`;
+    }
+    dustRafId = requestAnimationFrame(step);
+  };
+  dustRafId = requestAnimationFrame(step);
+};
+
 onMounted(() => {
   checkOrientation();
   window.addEventListener('resize', checkOrientation);
   window.addEventListener('orientationchange', checkOrientation);
+  initDustRaf();
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkOrientation);
   window.removeEventListener('orientationchange', checkOrientation);
+  if (dustRafId) {
+    cancelAnimationFrame(dustRafId);
+    dustRafId = null;
+  }
 });
 
 // 固定 10 个阶段定义
@@ -229,9 +396,20 @@ const STAGES = [
 ];
 
 // 笔记规则分配函数
+// 知识库拆分后的章节文件按关键词归入对应阶段
+const STAGE_KEYWORDS = {
+  javaweb: /HTML|CSS|Servlet|JSP|Filter|Listener|JSTL|Cookie|Session|Tomcat|DOM|XML|静态资源|请求参数|请求域|响应部分|重定向|JSTL/,
+  juc: /JUC|AQS|CAS|ReentrantLock|Semaphore|CountDown|CyclicBarrier|Exchanger|CompletableFuture|Atomic|ThreadLocal|volatile|线程池|阻塞队列|syn-ed|park-un|wait-ify|Future|ForkJoin|fork|Adder|CopyOnWrite|ConHashMap|异步调用|异步操作|线程模型|线程原理|创建线程|线程方法|终止流程/,
+  jvm: /JVM|垃圾|类加载|内存分配|内存泄漏|字节码|直接内存|对象创建|对象访存|回收|编译异常|执行引擎|本地内存|内存优化|参数调优|运行参数|底层协议|加载过程/,
+  microservice: /Nacos|Seata|Sentinel|Sleuth|服务注册|服务调用|服务熔断|服务网关|服务配置|服务编排|负载均衡/,
+};
+
 function getStageIdForNote(note) {
+  // 首页已按正文关键词完成阶段归类，优先生效
+  if (note.stage) return note.stage;
   const p = note.path || '';
   const planet = note.planet || '';
+  const name = p.split('/').pop() || '';
 
   // 1. foundation: path 含 01-计算机网络 或 07-设计模式
   if (p.includes('01-计算机网络') || p.includes('07-设计模式')) {
@@ -241,9 +419,6 @@ function getStageIdForNote(note) {
   if (p.includes('02-java基础与并发')) {
     return 'java-basic';
   }
-  // 3. javaweb: 无
-  // 4. juc: 无
-  // 5. jvm: 无
   // 6. mysql: path 含 03-数据库
   if (p.includes('03-数据库')) {
     return 'mysql';
@@ -252,7 +427,6 @@ function getStageIdForNote(note) {
   if (p.includes('04-框架与中间件')) {
     return 'redis';
   }
-  // 8. microservice: 无
   // 9. algorithm: planet 为 algorithm，或 path 含 08-算法与数据结构
   if (planet === 'algorithm' || p.includes('08-算法与数据结构')) {
     return 'algorithm';
@@ -260,6 +434,12 @@ function getStageIdForNote(note) {
   // 10. projects: planet 为 projects，或 path 含 05-游戏服务端专项
   if (planet === 'projects' || p.includes('05-游戏服务端专项')) {
     return 'projects';
+  }
+  // 3~5、8：仅知识库（system）章节按关键词归入，避免博客建设日志混入
+  if (planet === 'system') {
+    for (const id of ['juc', 'jvm', 'microservice', 'javaweb']) {
+      if (STAGE_KEYWORDS[id].test(name)) return id;
+    }
   }
 
   return null;
@@ -276,15 +456,6 @@ function formatTitle(title, maxUnits = 10) {
     }
   }
   return title;
-}
-
-// 确定性线性同余发生器 (LCG)，确保 SSR 与 CSR hydration 完全一致
-function createLcg(initialSeed) {
-  let s = initialSeed;
-  return function () {
-    s = (1664525 * s + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
 }
 
 // 固定种子的确定性伪随机星点（确保 SSR 与客户端一致）
@@ -337,6 +508,26 @@ const particles = Array.from({ length: 40 }, () => {
 });
 
 // 计算每个阶段在主线上的布局和所属卡片
+// 各阶段优先展示的文档关键词（其余文档排在后面）
+const STAGE_PRIORITY = {
+  foundation: ['计算机网络', '设计模式'],
+  javaweb: ['Servlet', 'JSP', 'Tomcat', 'HTML', 'CSS', 'Filter'],
+  juc: ['JUC', '线程池', 'AQS', 'ReentrantLock', 'volatile', 'CAS', 'CompletableFuture'],
+  jvm: ['JVM', '垃圾回收', '类加载', '内存分配', '字节码'],
+  microservice: ['Nacos', 'Seata', 'Sentinel', '微服务', '服务注册', '服务熔断'],
+  algorithm: ['题单', '滑动窗口', '单调栈'],
+  projects: ['博客系统', '游戏服务端'],
+};
+
+// 部分阶段只展示前 N 篇，避免时间线过密
+const STAGE_LIMIT = { algorithm: 7, projects: 2 };
+
+function priorityRank(stageId, note) {
+  const list = STAGE_PRIORITY[stageId] || [];
+  const idx = list.findIndex((k) => (note.title || '').includes(k));
+  return idx === -1 ? 99 : idx;
+}
+
 const stageColumns = computed(() => {
   const stageMap = new Map(STAGES.map((s) => [s.id, []]));
   for (const note of props.notes) {
@@ -357,7 +548,10 @@ const stageColumns = computed(() => {
 
   return STAGES.map((stage, idx) => {
     const x = Math.round(startX + idx * stepX);
-    const stageNotes = stageMap.get(stage.id) || [];
+    const sorted = [...(stageMap.get(stage.id) || [])].sort(
+      (a, b) => priorityRank(stage.id, a) - priorityRank(stage.id, b),
+    );
+    const stageNotes = sorted.slice(0, STAGE_LIMIT[stage.id] ?? sorted.length);
     const totalCount = stageNotes.length;
 
     const visibleNotes = stageNotes.slice(0, 3).map((n, cIdx) => ({
@@ -380,6 +574,8 @@ const stageColumns = computed(() => {
       bottomY = firstCardY + (visibleNotes.length - 1) * (cardH + cardGap) + cardH;
     }
 
+    const cardRows = totalCount === 0 ? 1 : visibleNotes.length + (hasOverflow ? 1 : 0);
+
     return {
       ...stage,
       index: idx,
@@ -392,6 +588,9 @@ const stageColumns = computed(() => {
       overflowY,
       placeholderY: firstCardY,
       bottomY,
+      firstCardY,
+      cardRows,
+      lastCardY: firstCardY + (cardRows - 1) * (cardH + cardGap) + cardH,
     };
   });
 });
@@ -450,11 +649,203 @@ const stageColumns = computed(() => {
   height: 100%;
   transform-origin: 0 0;
   will-change: transform;
+  z-index: 2;
+}
+
+/* 纯装饰宇宙氛围层：位于 bg-canvas 之上、atlas 之下 */
+.cosmic-ambient-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* 1. 三层视差星空 */
+.star-field {
+  position: absolute;
+  inset: -120px;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.star-field-far {
+  background-image:
+    radial-gradient(1px 1px at 40px 60px, rgba(230, 242, 255, 0.7), transparent),
+    radial-gradient(1.2px 1.2px at 190px 240px, rgba(190, 215, 255, 0.65), transparent),
+    radial-gradient(1px 1px at 340px 120px, rgba(255, 245, 225, 0.6), transparent),
+    radial-gradient(1.4px 1.4px at 520px 410px, rgba(210, 230, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 280px 500px, rgba(235, 240, 255, 0.6), transparent);
+  background-size: 640px 640px;
+  opacity: 0.38;
+  animation: drift-far 120s linear infinite;
+}
+
+.star-field-mid {
+  background-image:
+    radial-gradient(1.2px 1.2px at 90px 130px, rgba(240, 245, 255, 0.8), transparent),
+    radial-gradient(1.6px 1.6px at 290px 330px, rgba(210, 235, 255, 0.75), transparent),
+    radial-gradient(1.3px 1.3px at 480px 170px, rgba(255, 230, 190, 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 680px 540px, rgba(220, 240, 255, 0.8), transparent);
+  background-size: 840px 840px;
+  opacity: 0.52;
+  animation: drift-mid 80s linear infinite;
+}
+
+.star-field-near {
+  background-image:
+    radial-gradient(1.5px 1.5px at 120px 200px, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(2px 2px at 400px 440px, rgba(225, 245, 255, 0.85), transparent),
+    radial-gradient(1.6px 1.6px at 650px 220px, rgba(255, 240, 210, 0.8), transparent),
+    radial-gradient(1.8px 1.8px at 880px 710px, rgba(210, 240, 255, 0.85), transparent);
+  background-size: 1080px 1080px;
+  opacity: 0.68;
+  animation: drift-near 50s linear infinite;
+}
+
+@keyframes drift-far {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-35px, -20px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes drift-mid {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(45px, -35px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes drift-near {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(-60px, 40px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* 2. 闪烁星点 */
+.twinkle-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.twinkle-star {
+  position: absolute;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 5px rgba(220, 240, 255, 0.85);
+  animation-name: star-twinkle;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+  will-change: opacity, transform;
+}
+@keyframes star-twinkle {
+  0%, 100% { opacity: var(--twinkle-min, 0.1); transform: scale(0.8); }
+  50% { opacity: var(--twinkle-max, 0.7); transform: scale(1.25); }
+}
+
+/* 3. 流星掠过：严格在上部与下部开阔空域掠过，不穿过卡片文字区域 */
+.meteor-item {
+  position: absolute;
+  width: 140px;
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.meteor-item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(180, 215, 255, 0.45) 60%, rgba(255, 255, 255, 0.95) 100%);
+  border-radius: 1px;
+}
+.meteor-item::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px 2px rgba(230, 245, 255, 0.95);
+}
+
+.fate-meteor-upper {
+  top: 7%;
+  left: 6%;
+  animation: fate-meteor-run-upper 16s ease-in infinite;
+  animation-delay: 2.8s;
+}
+
+.fate-meteor-lower {
+  top: 86%;
+  left: 12%;
+  animation: fate-meteor-run-lower 23s ease-in infinite;
+  animation-delay: 11s;
+}
+
+@keyframes fate-meteor-run-upper {
+  0% {
+    opacity: 0;
+    transform: rotate(20deg) translate3d(-100px, 0, 0);
+  }
+  1.5% {
+    opacity: 0.9;
+  }
+  6% {
+    opacity: 0.9;
+  }
+  8% {
+    opacity: 0;
+    transform: rotate(20deg) translate3d(560px, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(20deg) translate3d(560px, 0, 0);
+  }
+}
+
+@keyframes fate-meteor-run-lower {
+  0% {
+    opacity: 0;
+    transform: rotate(15deg) translate3d(-80px, 0, 0);
+  }
+  1.2% {
+    opacity: 0.9;
+  }
+  5% {
+    opacity: 0.9;
+  }
+  6.5% {
+    opacity: 0;
+    transform: rotate(15deg) translate3d(520px, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(15deg) translate3d(520px, 0, 0);
+  }
+}
+
+/* 4. 宇宙尘埃粒子 */
+.dust-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.dust-particle {
+  position: absolute;
+  border-radius: 50%;
+  background: #cce2ff;
+  box-shadow: 0 0 3px rgba(200, 225, 255, 0.6);
+  pointer-events: none;
+  will-change: transform;
 }
 
 .frame {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   inset: 8px;
   border: 1px solid rgba(201, 184, 134, 0.28);
   pointer-events: none;
@@ -462,7 +853,7 @@ const stageColumns = computed(() => {
 
 .uid {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   left: 5.4%;
   bottom: 15px;
   margin: 0;
@@ -475,7 +866,7 @@ const stageColumns = computed(() => {
 
 .hint {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   right: 5.5%;
   bottom: 14px;
   margin: 0;
@@ -500,7 +891,104 @@ const stageColumns = computed(() => {
 .stage-v-line {
   stroke: #c9b886;
   stroke-width: 1;
-  stroke-opacity: 0.35;
+  stroke-opacity: 0.5;
+}
+
+/* 多卡阶段的左侧连接脊线（不压卡片，也不会被卡片遮住） */
+.stage-spine {
+  stroke: #c9b886;
+  stroke-width: 1;
+  stroke-opacity: 0.18;
+  stroke-dasharray: 3 5;
+}
+
+/* 主线与分支流动光脉冲 */
+.main-line-flow {
+  stroke: #ffebb0;
+  stroke-width: 2.2px;
+  stroke-linecap: round;
+  stroke-dasharray: 24 380;
+  stroke-opacity: 0.72;
+  filter: drop-shadow(0 0 5px rgba(255, 235, 176, 0.8));
+  animation: fate-line-drift 20s linear infinite;
+  pointer-events: none;
+  will-change: stroke-dashoffset;
+}
+
+@keyframes fate-line-drift {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -808; /* 从左向右缓慢移动 */
+  }
+}
+
+.stage-v-flow {
+  stroke: #eddca8;
+  stroke-width: 1.3px;
+  stroke-linecap: round;
+  stroke-dasharray: 12 160;
+  stroke-opacity: 0.5;
+  filter: drop-shadow(0 0 3px rgba(237, 220, 168, 0.6));
+  animation: fate-vline-drift 14s linear infinite;
+  pointer-events: none;
+  will-change: stroke-dashoffset;
+}
+
+@keyframes fate-vline-drift {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -344;
+  }
+}
+
+/* 阶段节点外圈呼吸光晕与微自转刻度环 */
+.stage-node-halo {
+  fill: none;
+  stroke: rgba(201, 184, 134, 0.35);
+  stroke-width: 1.2px;
+  filter: drop-shadow(0 0 6px rgba(201, 184, 134, 0.4));
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: stage-halo-breathe 7.5s ease-in-out infinite;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+@keyframes stage-halo-breathe {
+  0%, 100% {
+    transform: scale(0.92);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.85;
+  }
+}
+
+.stage-node-rotor {
+  fill: none;
+  stroke: #c9b886;
+  stroke-width: 0.9px;
+  stroke-dasharray: 3 4;
+  stroke-opacity: 0.6;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: stage-rotor-spin 48s linear infinite;
+  will-change: transform;
+  pointer-events: none;
+}
+
+@keyframes stage-rotor-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 阶段节点 */
@@ -520,6 +1008,18 @@ const stageColumns = computed(() => {
 .stage-node-group:hover .stage-ring {
   stroke: #fff1bd;
   filter: drop-shadow(0 0 6px rgba(240, 224, 168, 0.6));
+}
+
+.stage-node-group:hover .stage-node-halo {
+  stroke: #fff1bd;
+  stroke-opacity: 0.95;
+  filter: drop-shadow(0 0 10px rgba(255, 241, 189, 0.8));
+  animation-duration: 3.5s;
+}
+
+.stage-node-group:hover .stage-node-rotor {
+  animation-duration: 16s;
+  stroke-opacity: 0.95;
 }
 
 .stage-num {
@@ -577,7 +1077,17 @@ const stageColumns = computed(() => {
 
 /* +N 超出卡 */
 .overflow-card {
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.overflow-card:hover .overflow-bg {
+  stroke: rgba(240, 224, 168, 0.85);
+  fill: rgba(16, 28, 48, 0.85);
+}
+
+.overflow-card:hover .overflow-count {
+  fill: #fff2c9;
 }
 
 .overflow-bg {
@@ -655,7 +1165,7 @@ const stageColumns = computed(() => {
   }
 }
 
-/* 移动端媒体查询适配 */
+/* 移动端媒体查询适配与动效降级 */
 @media (max-width: 767px) {
   .frame {
     inset: 6px;
@@ -669,15 +1179,32 @@ const stageColumns = computed(() => {
     bottom: 10px;
     font-size: 9px;
   }
-}
-
-/* 动效降级 */
-@media (prefers-reduced-motion: reduce) {
-  .particle {
+  /* 移动端降级：禁用视差移动，粒子数量减半，保留呼吸与闪烁 */
+  .star-field-far,
+  .star-field-mid,
+  .star-field-near {
     animation: none !important;
   }
+  .dust-particle:nth-child(n+10) {
+    display: none !important;
+  }
+}
+
+/* 动效降级：无障碍模式关闭所有循环动效 */
+@media (prefers-reduced-motion: reduce) {
+  .particle,
+  .star-field-far,
+  .star-field-mid,
+  .star-field-near,
+  .twinkle-star,
+  .meteor-item,
+  .dust-particle,
+  .main-line-flow,
+  .stage-v-flow,
+  .stage-node-halo,
+  .stage-node-rotor,
   .rotate-icon {
-    animation: none;
+    animation: none !important;
   }
   .stage-ring,
   .card-thumb,
@@ -688,7 +1215,8 @@ const stageColumns = computed(() => {
   .card-node:hover .card-border {
     filter: none;
   }
-  .stage-node-group:hover .stage-ring {
+  .stage-node-group:hover .stage-ring,
+  .stage-node-group:hover .stage-node-halo {
     filter: none;
   }
 }

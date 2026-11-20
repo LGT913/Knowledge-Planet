@@ -41,7 +41,7 @@ export const GALAXIES = [
     x: 825,
     y: 562,
     size: 52,
-    planets: [],
+    planets: ['blog-dev'],
   },
   {
     id: 'growth',
@@ -51,7 +51,7 @@ export const GALAXIES = [
     x: 370,
     y: 720,
     size: 48,
-    planets: [],
+    planets: ['growth'],
   },
 ];
 

@@ -1,0 +1,315 @@
+---
+// 笔记列表：mode="shelf" 按专栏横向排列（星系页）；mode="flat" 平铺（阶段页）
+const {
+  groups = [],
+  notes = [],
+  total = groups.length > 0 ? groups.reduce((sum, g) => sum + g.notes.length, 0) : notes.length,
+  mode = 'shelf',
+  placeholder = '搜索标题 / 标签…',
+} = Astro.props;
+
+const blocks = mode === 'flat' ? [{ id: '_flat', label: '', sub: '', notes }] : groups;
+---
+
+<div class="note-grid-wrap" data-mode={mode}>
+  <div class="toolbar">
+    <label class="search">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <line x1="16.5" y1="16.5" x2="21" y2="21" stroke-linecap="round" />
+      </svg>
+      <input id="note-search" type="search" placeholder={placeholder} autocomplete="off" aria-label="搜索笔记" />
+    </label>
+    <p class="result-count"><b data-visible-count>{total}</b> / {total} 篇</p>
+  </div>
+
+  <div class:list={['blocks', mode]} data-note-columns>
+    {blocks.map((block) => (
+      <section class="block" data-note-group>
+        {block.label && (
+          <header class="block-head">
+            <h2>{block.label}</h2>
+            {block.sub && <p>{block.sub}</p>}
+            <span class="block-count">{block.notes.length}</span>
+          </header>
+        )}
+        <div class="track">
+          {block.notes.map((n) => (
+            <a
+              class="card"
+              href={n.href}
+              data-note-card
+              data-search={`${n.title} ${(n.tags || []).join(' ')} ${n.date}`.toLowerCase()}
+            >
+              <span class:list={['orb', n.tone || 'tone-a']} aria-hidden="true"><i></i></span>
+              <div class="info">
+                <strong>{n.title}</strong>
+                <span class="meta">
+                  {n.metaLabel && <em>{n.metaLabel}</em>}
+                  <time>{n.date}</time>
+                </span>
+                {n.tags?.length > 0 && (
+                  <span class="tags">{n.tags.map((t) => <span>{t}</span>)}</span>
+                )}
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+    ))}
+  </div>
+
+  <p class="empty" data-note-empty hidden>没有匹配的笔记，换个关键词试试</p>
+</div>
+
+<script>
+  const input = document.getElementById('note-search');
+  const grid = document.querySelector('[data-note-columns]');
+  const empty = document.querySelector('[data-note-empty]');
+  const counter = document.querySelector('[data-visible-count]');
+
+  if (input && grid) {
+    const cards = Array.from(grid.querySelectorAll('[data-note-card]'));
+    const groups = Array.from(grid.querySelectorAll('[data-note-group]'));
+
+    const apply = () => {
+      const q = input.value.trim().toLowerCase();
+      let visible = 0;
+
+      for (const card of cards) {
+        const hit = !q || (card.dataset.search || '').includes(q);
+        card.hidden = !hit;
+        if (hit) visible += 1;
+      }
+
+      for (const group of groups) {
+        const left = group.querySelectorAll('[data-note-card]:not([hidden])').length;
+        group.hidden = left === 0;
+      }
+
+      if (counter) counter.textContent = String(visible);
+      if (empty) empty.hidden = visible !== 0;
+    };
+
+    input.addEventListener('input', apply);
+  }
+</script>
+
+<style>
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 5.4% 18px;
+  }
+
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: min(360px, 100%);
+    padding: 8px 12px;
+    border: 1px solid rgba(201, 184, 134, 0.24);
+    border-radius: 4px;
+    background: rgba(8, 14, 28, 0.6);
+    color: #7f92b3;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .search:focus-within {
+    border-color: rgba(201, 184, 134, 0.6);
+    box-shadow: 0 0 0 3px rgba(138, 180, 255, 0.1);
+  }
+
+  .search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #e8eefc;
+    font-size: 13px;
+    font-family: inherit;
+  }
+
+  .search input::placeholder { color: #55637d; }
+  .search input::-webkit-search-cancel-button { filter: invert(0.7); }
+
+  .result-count {
+    margin: 0;
+    color: #5f7297;
+    font-size: 11px;
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+
+  .result-count b { color: #8ab4ff; font-weight: 500; }
+
+  /* 星系页：每个专栏一整行，卡片横向排布、可左右滚动 */
+  .blocks.shelf {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 0 5.4% 60px;
+  }
+
+  .shelf .block {
+    border: 1px solid rgba(201, 184, 134, 0.16);
+    border-radius: 5px;
+    background: linear-gradient(180deg, rgba(20, 32, 56, 0.5), rgba(9, 15, 28, 0.42));
+    padding: 12px 12px 14px;
+  }
+
+  .block-head {
+    position: relative;
+    padding: 2px 4px 10px;
+    border-bottom: 1px solid rgba(201, 184, 134, 0.14);
+    margin-bottom: 12px;
+  }
+
+  .block-head h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    color: #f3e8bd;
+  }
+
+  .block-head p {
+    margin: 4px 0 0;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: #6f7f99;
+  }
+
+  .block-count {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    color: rgba(138, 180, 255, 0.85);
+    font-size: 11px;
+    font-family: Consolas, monospace;
+  }
+
+  .shelf .track {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(201, 184, 134, 0.28) transparent;
+  }
+
+  .shelf .track::-webkit-scrollbar { height: 6px; }
+  .shelf .track::-webkit-scrollbar-thumb {
+    background: rgba(201, 184, 134, 0.28);
+    border-radius: 3px;
+  }
+
+  .shelf .card { flex: 0 0 268px; scroll-snap-align: start; }
+
+  /* 阶段页：不分专栏，卡片直接平铺 */
+  .blocks.flat {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+    padding: 0 5.4% 60px;
+  }
+
+  .flat .block,
+  .flat .track { display: contents; }
+
+  .card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(201, 184, 134, 0.16);
+    border-radius: 4px;
+    background: linear-gradient(150deg, rgba(179, 196, 225, 0.06), rgba(87, 110, 157, 0.03));
+    text-decoration: none;
+    transition: border-color 0.25s ease, transform 0.2s ease, box-shadow 0.25s ease;
+  }
+
+  .card:hover {
+    border-color: rgba(201, 184, 134, 0.6);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 26px rgba(138, 180, 255, 0.16);
+  }
+
+  .card[hidden] { display: none; }
+  .block[hidden] { display: none; }
+
+  .orb {
+    position: relative;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    margin-top: 1px;
+    border-radius: 50%;
+    box-shadow: inset -5px -4px 10px rgba(3, 7, 17, 0.72), 0 0 9px rgba(138, 180, 255, 0.14);
+  }
+
+  .orb::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 1px solid rgba(201, 184, 134, 0.2);
+  }
+
+  .orb i {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.55), transparent 45%);
+  }
+
+  .tone-a { background: radial-gradient(circle at 34% 30%, #f2e2b6, #c9a24a 45%, #5a3d17 100%); }
+  .tone-b { background: radial-gradient(circle at 34% 30%, #cfe4ff, #4a86c9 45%, #122a4d 100%); }
+  .tone-c { background: radial-gradient(circle at 34% 30%, #c8ffe6, #2fa585 45%, #0a3830 100%); }
+  .tone-d { background: radial-gradient(circle at 34% 30%, #e6d2ff, #7a58b8 45%, #231240 100%); }
+
+  .info { min-width: 0; flex: 1; }
+
+  .info strong {
+    display: block;
+    color: #e8e2cf;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.55;
+  }
+
+  .meta { display: flex; align-items: baseline; gap: 10px; margin-top: 3px; }
+  .meta em { font-style: normal; color: #8ab4ff; font-size: 10.5px; letter-spacing: 0.5px; }
+  .meta time { color: #6f7f99; font-size: 10.5px; font-family: Consolas, monospace; }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .tags span {
+    padding: 1px 7px;
+    font-size: 10px;
+    color: rgba(201, 184, 134, 0.8);
+    border: 1px solid rgba(201, 184, 134, 0.26);
+    border-radius: 999px;
+  }
+
+  .empty {
+    padding: 40px 5.4%;
+    color: #5f7297;
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
+
+  @media (max-width: 640px) {
+    .blocks.flat { grid-template-columns: 1fr; }
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .shelf .card { flex-basis: 240px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card { transition: none; }
+    .card:hover { transform: none; box-shadow: none; }
+  }
+</style>

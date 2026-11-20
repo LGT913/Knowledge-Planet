@@ -1,5 +1,6 @@
 export const DOC_TITLES = {
   system: '系统知识',
+  'blog-dev': '工程实战',
   algorithm: '算法笔记',
   java: 'Java 八股',
   projects: '项目作品集',

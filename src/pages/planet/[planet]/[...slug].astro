@@ -1,7 +1,8 @@
 ---
 import { getCollection, render } from 'astro:content';
 import Base from '../../../layouts/Base.astro';
-import { planetByKey } from '../../../data/planets';
+import GithubSlugger from 'github-slugger';
+import { stageOf } from '../../../data/note-stage.js';
 
 export async function getStaticPaths() {
   const posts = await getCollection('notes', (n) => !n.data.private);
@@ -13,22 +14,112 @@ export async function getStaticPaths() {
 
 const { post } = Astro.props;
 const { Content } = await render(post);
-const info = planetByKey(post.data.planet);
+
+const STAGE_NAMES = {
+  foundation: '计算机基础',
+  'java-basic': 'Java 基础',
+  javaweb: 'JavaWeb',
+  juc: 'JUC 并发',
+  jvm: 'JVM',
+  mysql: 'MySQL',
+  redis: 'Redis 与中间件',
+  microservice: '微服务',
+  algorithm: '算法与数据结构',
+  projects: '项目实战',
+};
+
+const stageId = stageOf(post);
+const stageName = STAGE_NAMES[stageId] ?? post.data.planet;
+
+// 左侧目录：同一模块（阶段）下的全部文章，而不是本篇的标题
+const modulePosts = (await getCollection('notes', (n) => !n.data.private))
+  .filter((n) => stageOf(n) === stageId)
+  .sort((a, b) => a.data.title.localeCompare(b.data.title, 'zh-Hans-CN'))
+  .map((n) => ({
+    title: n.data.title,
+    href: `/planet/${n.data.planet}/${n.id.split('/').slice(1).join('/')}`,
+    current: n.id === post.id,
+  }));
+
+// 右侧大纲：正文 H2~H4 全量，剔除代码块与“目录”标题
+const slugger = new GithubSlugger();
+const bodyNoCode = post.body
+  .replace(/^---[\s\S]*?\n---\s*/, '')
+  .replace(/^```[\s\S]*?^```/gm, '');
+const outline = [...bodyNoCode.matchAll(/^(#{2,4})\s+(.+)$/gm)]
+  .map((m) => {
+    const raw = m[2].trim();
+    return {
+      level: m[1].length,
+      raw,
+      text: raw.replace(/^(?:[一二三四五六七八九十]+、|\d+(?:\.\d+)*[\.\s、]*)+/, '').trim() || raw,
+      id: slugger.slug(raw),
+    };
+  })
+  .filter((h) => h.raw !== '目录' && h.text !== '目录')
+  .slice(0, 160);
+
+const pathHint = post.filePath ?? `src/content/notes/${post.id}`;
+const dateText = post.data.date.toISOString().slice(0, 10);
 ---
+
 <Base title={`${post.data.title} · 知识星球`}>
-  <article class="container">
-    <a class="back" id="note-back" href="/?view=fate">← 返回学习路线</a>
-    <p class="eyebrow">{info?.en ?? post.data.planet}</p>
-    <h1 class="note-title">{post.data.title}</h1>
-    <div class="note-meta">
-      <time>{post.data.date.toISOString().slice(0, 10)}</time>
-      {post.data.tags.map((t) => <span class="tag">{t}</span>)}
+  <main class="doc-page">
+    <div class="doc-stars" aria-hidden="true"></div>
+
+    <div class="doc-topbar">
+      <a class="back" id="note-back" href="/?view=fate">← 返回学习路线</a>
     </div>
-    <div class="prose">
-      <Content />
+
+    <div class="doc-grid">
+      <aside class="doc-toc" aria-label="模块文章目录">
+        <p class="toc-title">{stageName} · 文章</p>
+        <ol class="toc-list module-list">
+          {modulePosts.map((n, i) => (
+            <li style={`--i:${Math.min(i, 16)}`} class:list={[{ current: n.current }]}>
+              <a href={n.href} aria-current={n.current ? 'page' : undefined}>{n.title}</a>
+            </li>
+          ))}
+        </ol>
+      </aside>
+
+      <article class="doc-article">
+        <p class="eyebrow">SYSTEM</p>
+        <h1 class="doc-title">{post.data.title}</h1>
+
+        <div class="doc-meta">
+          <time datetime={post.data.date.toISOString()}>{dateText}</time>
+          {post.data.tags.map((t) => <span class="doc-tag">{t}</span>)}
+        </div>
+
+        <div class="doc-path">
+          <span class="path-stripe" aria-hidden="true"></span>
+          <code>{pathHint}</code>
+        </div>
+
+        <div class="prose doc-prose">
+          <Content />
+        </div>
+      </article>
+
+      <aside class="doc-outline" aria-label="页面大纲">
+        <p class="outline-title">大纲</p>
+        {outline.length > 0 ? (
+          <ul class="outline-list">
+            {outline.map((h) => (
+              <li class:list={['outline-item', `lv-${h.level}`]}>
+                <a href={`#${h.id}`} data-outline-link={h.id}>{h.text}</a>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p class="outline-empty">本篇暂无小节</p>
+        )}
+      </aside>
     </div>
-  </article>
+  </main>
 </Base>
+
 <script>
   const back = document.getElementById('note-back');
   back?.addEventListener('click', (e) => {
@@ -37,4 +128,532 @@ const info = planetByKey(post.data.planet);
       history.back();
     }
   });
+
+  const links = Array.from(document.querySelectorAll('[data-outline-link]'));
+  if (links.length > 0) {
+    const targets = Array.from(document.querySelectorAll('.doc-prose h2, .doc-prose h3, .doc-prose h4'));
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const line = window.innerHeight * 0.28;
+      let current = targets[0];
+      for (const h of targets) {
+        if (h.getBoundingClientRect().top <= line) current = h;
+      }
+      links.forEach((a) => a.classList.remove('active'));
+      const link = current && links.find((a) => a.getAttribute('data-outline-link') === current.id);
+      if (link) link.classList.add('active');
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    update();
+  }
 </script>
+
+<style is:global>
+  .doc-page {
+    position: relative;
+    min-height: 100vh;
+    background: #080c16;
+    color: #ccd6e6;
+    font-family: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    padding-top: 54px;
+    padding-bottom: 80px;
+  }
+
+  .doc-stars {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, rgba(210, 226, 255, 0.34), transparent),
+      radial-gradient(1px 1px at 32% 64%, rgba(210, 226, 255, 0.22), transparent),
+      radial-gradient(1px 1px at 55% 28%, rgba(226, 236, 255, 0.28), transparent),
+      radial-gradient(1px 1px at 74% 72%, rgba(210, 226, 255, 0.2), transparent),
+      radial-gradient(1px 1px at 88% 36%, rgba(226, 236, 255, 0.26), transparent),
+      radial-gradient(1px 1px at 22% 86%, rgba(210, 226, 255, 0.18), transparent);
+    background-size: 520px 520px;
+    opacity: 0.55;
+    animation: doc-star-breathe 16s ease-in-out infinite;
+  }
+
+  @keyframes doc-star-breathe {
+    0%, 100% { opacity: 0.34; }
+    50% { opacity: 0.62; }
+  }
+
+  .doc-topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    padding: 12px 6%;
+    background: linear-gradient(180deg, rgba(8, 12, 22, 0.94), rgba(8, 12, 22, 0.55) 70%, rgba(8, 12, 22, 0));
+    backdrop-filter: blur(6px);
+  }
+
+  .doc-page .back {
+    display: inline-block;
+    margin: 0;
+    color: rgba(190, 204, 224, 0.72);
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-decoration: none;
+    transition: color 0.3s ease, transform 0.3s ease;
+  }
+
+  .doc-page .back:hover {
+    color: #e9d9a8;
+    transform: translateX(-3px);
+  }
+
+  .doc-grid {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 56px;
+    max-width: 1180px;
+    margin: 34px auto 0;
+    padding: 0 6%;
+  }
+
+  .doc-toc {
+    position: sticky;
+    top: 64px;
+    align-self: start;
+    max-height: calc(100vh - 80px);
+    overflow: hidden;
+  }
+
+  .toc-title {
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: rgba(201, 184, 134, 0.72);
+    border-bottom: 1px solid transparent;
+    border-image: linear-gradient(90deg, rgba(201, 184, 134, 0.55), rgba(201, 184, 134, 0.05)) 1;
+  }
+
+  .toc-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: toc;
+  }
+
+  .toc-list li {
+    counter-increment: toc;
+    animation: doc-fade-in 0.55s ease both;
+    animation-delay: calc(var(--i) * 45ms);
+  }
+
+  .toc-list a {
+    display: block;
+    padding: 6px 0 6px 24px;
+    color: rgba(168, 186, 210, 0.66);
+    font-size: 12.5px;
+    line-height: 1.5;
+    text-decoration: none;
+    transition: color 0.28s ease, transform 0.28s ease;
+    cursor: pointer;
+  }
+
+  .toc-list a::before {
+    content: counter(toc, decimal-leading-zero);
+    float: left;
+    margin-left: -24px;
+    color: rgba(201, 184, 134, 0.35);
+    font-size: 10px;
+    font-family: Consolas, monospace;
+  }
+
+  .toc-list a:hover {
+    color: #efdfae;
+    transform: translateX(3px);
+  }
+
+  .toc-empty {
+    margin: 0;
+    color: rgba(150, 164, 186, 0.5);
+    font-size: 12px;
+  }
+
+  /* 模块文章列表：不做数字编号，用小圆点标记，当前篇高亮 */
+  .module-list {
+    counter-reset: none;
+    max-height: calc(100vh - 150px);
+    overflow-y: auto;
+    padding-right: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(201, 184, 134, 0.25) transparent;
+  }
+
+  .module-list li {
+    counter-increment: none;
+  }
+
+  .module-list a {
+    padding: 5px 0 5px 18px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: rgba(168, 186, 210, 0.6);
+  }
+
+  .module-list a::before {
+    content: '';
+    float: left;
+    width: 5px;
+    height: 5px;
+    margin: 7px 0 0 -18px;
+    border-radius: 50%;
+    background: rgba(201, 184, 134, 0.42);
+    transition: background 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .module-list a[aria-current='page'] {
+    color: #efdfae;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+
+  .module-list a[aria-current='page']::before {
+    background: #efdfae;
+    box-shadow: 0 0 6px rgba(239, 223, 174, 0.8);
+  }
+
+  .module-list a[aria-current='page']:hover {
+    transform: none;
+  }
+
+  .doc-article {
+    min-width: 0;
+    animation: doc-fade-in 0.6s ease both;
+  }
+
+  .doc-article .eyebrow {
+    margin: 0 0 12px;
+    font-size: 11px;
+    letter-spacing: 5px;
+    color: rgba(201, 184, 134, 0.62);
+    font-weight: 400;
+  }
+
+  .doc-title {
+    margin: 0 0 18px;
+    color: #f3f6fb;
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    line-height: 1.35;
+  }
+
+  .doc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .doc-meta time {
+    color: rgba(150, 168, 194, 0.72);
+    font-size: 12px;
+    letter-spacing: 0.5px;
+  }
+
+  .doc-tag {
+    padding: 2px 10px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: rgba(201, 184, 134, 0.8);
+    background: transparent;
+    border: 1px solid rgba(201, 184, 134, 0.32);
+    border-radius: 999px;
+  }
+
+  .doc-path {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 30px;
+    padding: 9px 14px 9px 18px;
+    background: rgba(13, 25, 46, 0.55);
+    border: 1px solid rgba(84, 118, 166, 0.18);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .path-stripe {
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #8fb2e0, #c9b886);
+    opacity: 0.75;
+  }
+
+  .doc-path code {
+    background: none;
+    padding: 0;
+    color: rgba(168, 186, 210, 0.7);
+    font-size: 11.5px;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    letter-spacing: 0.2px;
+  }
+
+  @keyframes doc-fade-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* 正文：深色技术文档风格 */
+  .doc-prose {
+    font-size: 15px;
+    line-height: 1.9;
+    color: #c3cfdf;
+  }
+
+  .doc-prose h2 {
+    margin-top: 2.1em;
+    color: #edf2f9;
+    font-size: 20px;
+    border-bottom: 1px solid rgba(201, 184, 134, 0.18);
+    padding-bottom: 8px;
+  }
+
+  .doc-prose h3 {
+    color: #e3eaf4;
+    font-size: 16.5px;
+  }
+
+  .doc-prose a {
+    color: #a8c6ee;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(140, 178, 226, 0.35);
+  }
+
+  .doc-prose a:hover {
+    color: #cfe0f7;
+    border-bottom-color: rgba(201, 184, 134, 0.6);
+  }
+
+  .doc-prose blockquote {
+    background: rgba(11, 21, 38, 0.72);
+    border-left: 2px solid rgba(201, 184, 134, 0.45);
+    border-radius: 0 8px 8px 0;
+  }
+
+  .doc-prose table {
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .doc-prose th {
+    background: rgba(15, 28, 50, 0.9);
+    border-color: rgba(84, 118, 166, 0.22);
+  }
+
+  .doc-prose td {
+    border-color: rgba(84, 118, 166, 0.16);
+  }
+
+  .doc-prose tr:nth-child(even) td {
+    background: rgba(10, 18, 33, 0.6);
+  }
+
+  .doc-prose pre {
+    position: relative;
+    border-radius: 10px;
+    border: 1px solid rgba(84, 118, 166, 0.2);
+    background: #0a1120 !important;
+    padding: 16px 18px 16px 0;
+    overflow-x: auto;
+  }
+
+  .doc-prose pre code {
+    display: block;
+    padding: 0 0 0 18px;
+  }
+
+  .doc-prose .line {
+    display: block;
+    padding-left: 54px;
+    position: relative;
+    min-height: 1.55em;
+  }
+
+  .doc-prose .code-line-no {
+    position: absolute;
+    left: 0;
+    width: 38px;
+    text-align: right;
+    color: rgba(120, 142, 172, 0.42);
+    font-size: 11px;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  .doc-prose .code-line-no::after {
+    content: '';
+    position: absolute;
+    right: -10px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(84, 118, 166, 0.16);
+  }
+
+  .doc-prose :not(pre) > code {
+    background: rgba(20, 33, 56, 0.85);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.88em;
+    color: #b9d0ee;
+  }
+
+  .doc-outline {
+    position: sticky;
+    top: 64px;
+    align-self: start;
+    padding-left: 18px;
+    border-left: 1px solid rgba(201, 184, 134, 0.14);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(201, 184, 134, 0.22) transparent;
+  }
+
+  /* 大纲按标题层级缩进：H2 顶格，H3 缩进，H4 再缩进 */
+  .outline-item.lv-3 a {
+    padding-left: 24px;
+    font-size: 11px;
+  }
+
+  .outline-item.lv-4 a {
+    padding-left: 38px;
+    font-size: 10.5px;
+    color: rgba(152, 168, 192, 0.48);
+  }
+
+  .outline-item.lv-2 a {
+    color: rgba(176, 192, 214, 0.72);
+    font-weight: 500;
+  }
+
+  .outline-title {
+    margin: 0 0 12px;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: rgba(201, 184, 134, 0.6);
+  }
+
+  .outline-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .outline-list li {
+    margin: 0 0 2px;
+  }
+
+  .outline-list a {
+    display: block;
+    padding: 4px 0 4px 10px;
+    margin-left: -19px;
+    border-left: 2px solid transparent;
+    color: rgba(152, 168, 192, 0.6);
+    font-size: 11.5px;
+    line-height: 1.55;
+    text-decoration: none;
+    transition: color 0.25s ease, border-color 0.25s ease;
+  }
+
+  .outline-list a::before {
+    content: '·';
+    margin-right: 6px;
+    color: rgba(201, 184, 134, 0.3);
+  }
+
+  .outline-list a:hover {
+    color: #e7d8ac;
+  }
+
+  .outline-list a.active {
+    color: #efdfae;
+    border-left-color: rgba(201, 184, 134, 0.55);
+  }
+
+  .outline-empty {
+    margin: 0;
+    color: rgba(150, 164, 186, 0.45);
+    font-size: 11px;
+  }
+
+  .doc-grid {
+    grid-template-columns: 210px minmax(0, 1fr) 190px;
+    gap: 46px;
+    max-width: 1320px;
+  }
+
+  @media (max-width: 1180px) {
+    .doc-outline {
+      display: none;
+    }
+
+    .doc-grid {
+      grid-template-columns: 210px minmax(0, 1fr);
+      max-width: 1180px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .doc-grid {
+      grid-template-columns: 1fr;
+      gap: 26px;
+      margin-top: 24px;
+    }
+
+    .doc-toc {
+      position: static;
+      order: 2;
+      padding-top: 10px;
+      border-top: 1px solid rgba(201, 184, 134, 0.14);
+    }
+
+    .module-list {
+      max-height: none;
+      overflow: visible;
+    }
+
+    .doc-article {
+      order: 1;
+    }
+
+    .doc-title {
+      font-size: 24px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .doc-stars,
+    .doc-article,
+    .toc-list li {
+      animation: none;
+    }
+
+    .doc-page .back,
+    .toc-list a {
+      transition: none;
+    }
+  }
+</style>

@@ -1,22 +1,18 @@
 ---
 import Base from '../../layouts/Base.astro';
+import NoteGrid from '../../components/NoteGrid.astro';
 import { GALAXIES } from '../../data/galaxies';
 import { getCollection } from 'astro:content';
+import { stageOf } from '../../data/note-stage.js';
+import { STAGES } from '../../data/stages.js';
 
 export function getStaticPaths() {
   return GALAXIES.map((g) => ({ params: { slug: g.id }, props: { galaxy: g } }));
 }
 
 const { galaxy } = Astro.props;
-const notes = await getCollection('notes', ({ data }) => data.planet !== undefined);
 
-const planetBuckets = new Map();
-for (const n of notes) {
-  const p = n.data.planet;
-  if (!galaxy.planets.includes(p)) continue;
-  if (!planetBuckets.has(p)) planetBuckets.set(p, []);
-  planetBuckets.get(p).push(n);
-}
+const STAGE_MAP = Object.fromEntries(STAGES.map((s) => [s.id, s]));
 
 const PLANET_LABELS = {
   system: '系统星球',
@@ -25,48 +21,72 @@ const PLANET_LABELS = {
   'blog-dev': '工程星球',
   growth: '成长星球',
 };
-const PLANET_SUBS = {
-  system: '网络 · JVM · JUC · 数据库',
-  algorithm: 'LeetCode · 模板 · 专项',
-  projects: '博客系统 · QuillAgent',
-  'blog-dev': '部署 · 运维 · 架构',
-  growth: '周计划 · 复盘 · 随笔',
-};
-const PLANET_PREVIEWS = {
-  system: 'thumb-two',
-  algorithm: 'thumb-three',
-  projects: 'thumb-one',
-  'blog-dev': 'thumb-four',
-  growth: 'thumb-two',
-};
 
-const planetCards = galaxy.planets.map((pid, idx) => {
-  const items = planetBuckets.get(pid) ?? [];
-  return {
-    id: pid,
-    title: PLANET_LABELS[pid] ?? pid,
-    sub: PLANET_SUBS[pid] ?? '',
-    count: items.length,
-    path: `/docs/${pid}`,
-    preview: PLANET_PREVIEWS[pid] ?? 'thumb-one',
-    tone: ['orange', 'blue', 'gold'][idx % 3],
-  };
+const notes = (await getCollection('notes', (n) => !n.data.private))
+  .filter((n) => galaxy.planets.includes(n.data.planet))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf() || a.data.title.localeCompare(b.data.title, 'zh-Hans-CN'));
+
+let cardIndex = 0;
+const toCard = (n) => ({
+  title: n.data.title,
+  href: `/planet/${n.data.planet}/${n.id.split('/').slice(1).join('/')}`,
+  date: n.data.date.toISOString().slice(0, 10),
+  tags: n.data.tags.filter((t) => !['system', '八股'].includes(t)).slice(0, 2),
+  metaLabel: PLANET_LABELS[n.data.planet] ?? n.data.planet,
+  tone: ['tone-a', 'tone-b', 'tone-c', 'tone-d'][cardIndex++ % 4],
 });
 
-const EMPTY_SLOTS = 4;
-if (planetCards.length === 0) {
-  for (let i = 0; i < EMPTY_SLOTS; i++) {
-    planetCards.push({
-      id: `coming-${i}`,
-      title: `待定星球 ${i + 1}`,
-      sub: '待接入内容',
-      count: 0,
-      path: '#',
-      preview: ['thumb-one', 'thumb-two', 'thumb-three', 'thumb-four'][i],
-      tone: ['orange', 'blue', 'gold'][i % 3],
-    });
+// 分组策略：知识星系按学习阶段分专栏；作品星系按项目分专栏；其余星系不分组
+const groupMode =
+  galaxy.id === 'knowledge' ? 'stage' : galaxy.id === 'projects' ? 'project' : 'flat';
+
+const isQuillAgent = (n) => {
+  const text = `${n.data.title} ${n.data.tags.join(' ')} ${n.data.summary ?? ''}`;
+  return /QuillAgent|创作助手|码字|智能创作/i.test(text);
+};
+
+const groupMap = new Map();
+for (const n of notes) {
+  const key =
+    groupMode === 'stage'
+      ? stageOf(n)
+      : groupMode === 'project'
+        ? isQuillAgent(n)
+          ? 'quillagent'
+          : 'blog'
+        : null;
+
+  if (key && !groupMap.has(key)) {
+    if (groupMode === 'stage') {
+      groupMap.set(key, {
+        id: key,
+        label: STAGE_MAP[key]?.name ?? PLANET_LABELS[n.data.planet] ?? key,
+        sub: STAGE_MAP[key]?.sub ?? '',
+        notes: [],
+      });
+    } else {
+      groupMap.set(key, {
+        id: key,
+        label: key === 'quillagent' ? 'QuillAgent' : '博客系统',
+        sub: key === 'quillagent' ? '智能创作助手 · 文档与规范' : 'Spring Boot + Vue3 全栈实践',
+        notes: [],
+      });
+    }
   }
+
+  if (key) groupMap.get(key).notes.push(toCard(n));
 }
+
+const orderOf = (id) => {
+  if (groupMode === 'project') return id === 'blog' ? 0 : 1;
+  const i = STAGES.findIndex((s) => s.id === id);
+  return i === -1 ? 99 : i;
+};
+
+const groups = [...groupMap.values()].sort((a, b) => orderOf(a.id) - orderOf(b.id));
+const flatCards = notes.map(toCard);
+const total = notes.length;
+const layout = groupMode === 'flat' ? 'flat' : 'shelf';
 ---
 
 <Base title={`${galaxy.title} · 星系详情`}>
@@ -80,39 +100,61 @@ if (planetCards.length === 0) {
       <h1>{galaxy.title}</h1>
       <p>{galaxy.sub}</p>
       <div class="counts">
-        <span><b>{planetCards.length}</b><small> 个星球</small></span>
-        <span><b>{planetCards.reduce((s, c) => s + c.count, 0)}</b><small> 篇笔记</small></span>
+        {layout === 'shelf' && <span><b>{groups.length}</b><small> 个专栏</small></span>}
+        <span><b>{total}</b><small> 篇笔记</small></span>
       </div>
     </section>
 
-    <section class="cards">
-      {planetCards.map((c) => (
-        <a class="card" href={c.count > 0 ? c.path : '#'} aria-disabled={c.count === 0} onclick={c.count === 0 ? 'event.preventDefault()' : ''}>
-          <div class="thumb" aria-hidden="true">
-            <div class:list={['thumb-inner', c.preview]} />
-            <span class="count">{c.count > 0 ? c.count + ' 篇' : '待接入'}</span>
-          </div>
-          <div class="info">
-            <strong>{c.title}</strong>
-            <em>{c.sub}</em>
-            <span class="arrow">↗</span>
-          </div>
-        </a>
-      ))}
-    </section>
+    {layout === 'shelf' ? (
+      <NoteGrid groups={groups} total={total} mode="shelf" />
+    ) : (
+      <NoteGrid notes={flatCards} total={total} mode="flat" />
+    )}
 
     <p class="uid">UID:147730179</p>
   </main>
 </Base>
 
 <style>
-.galaxy{position:relative;min-height:100vh;color:#e8eefc;background:radial-gradient(ellipse at 50% -10%,#203561 0%,#0b172e 45%,#030711 100%);font-family:'Microsoft YaHei',sans-serif}
-.topbar{display:flex;justify-content:space-between;align-items:center;padding:18px 5.4% 0}.back{color:#8fa3c8;text-decoration:none;font-size:12px;letter-spacing:1px}.back:hover{color:#8ab4ff}.bread{font-size:12px;color:#5f7297;letter-spacing:.5px}.bread em{font-style:normal;color:#e8e2cf}
-.hero{padding:38px 5.4% 28px;border-bottom:1px solid rgba(201,184,134,.14)}.hero h1{margin:0 0 10px;font-size:32px;font-weight:500;color:#f3e8bd;letter-spacing:3px}.hero p{margin:0;color:#a0b4d2;font-size:13px;letter-spacing:1px}.counts{display:flex;gap:30px;margin-top:18px}.counts span b{color:#8ab4ff;font-size:22px;font-weight:500;margin-right:6px}.counts span small{color:#6f7a90;font-size:11px;letter-spacing:1px}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px;padding:30px 5.4% 60px}
-.card{position:relative;display:block;border:1px solid rgba(201,184,134,.28);border-radius:2px;background:linear-gradient(150deg,rgba(179,196,225,.07),rgba(87,110,157,.04));text-decoration:none;transition:border-color .25s,transform .2s,box-shadow .25s;overflow:hidden}.card:hover{border-color:rgba(201,184,134,.65);transform:translateY(-3px);box-shadow:0 8px 32px rgba(138,180,255,.22)}.card[aria-disabled="true"]{opacity:.5;pointer-events:none}
-.thumb{position:relative;height:140px;overflow:hidden;border-bottom:1px solid rgba(201,184,134,.2)}.thumb-inner{position:absolute;inset:0}.thumb-one{background:linear-gradient(135deg,#ba5c72,#eab2a8,#372c5d)}.thumb-two{background:linear-gradient(135deg,#112849,#3976b2,#d19a73)}.thumb-three{background:linear-gradient(135deg,#d7a746,#fff0b1,#795036)}.thumb-four{background:linear-gradient(135deg,#572d73,#bf588c,#112b5b)}.thumb::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(5,7,15,.8) 100%)}.count{position:absolute;top:12px;right:12px;z-index:2;padding:2px 10px;border:1px solid rgba(201,184,134,.6);background:rgba(5,7,15,.7);color:#f0e7cc;font-size:11px;letter-spacing:1px;border-radius:1px}
-.info{display:flex;align-items:baseline;gap:10px;padding:16px 18px}.info strong{flex:1;color:#e8e2cf;font-size:16px;font-weight:500;letter-spacing:1px}.info em{color:#7f8fa6;font-size:11px;font-style:normal;letter-spacing:.5px}.arrow{color:#c9b886;font-size:18px}
-.uid{position:absolute;left:5.4%;bottom:12px;color:#d4d5d4;font:10px 'Consolas','Cascadia Code',monospace;margin:0;pointer-events:none}
-@media(prefers-reduced-motion:reduce){.card{transition:none}.card:hover{transform:none;box-shadow:none}}
+  .galaxy {
+    position: relative;
+    min-height: 100vh;
+    padding-bottom: 40px;
+    color: #e8eefc;
+    background: radial-gradient(ellipse at 50% -10%, #203561 0%, #0b172e 45%, #030711 100%);
+    font-family: 'Microsoft YaHei', sans-serif;
+  }
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 5.4% 0;
+  }
+
+  .back { color: #8fa3c8; text-decoration: none; font-size: 12px; letter-spacing: 1px; }
+  .back:hover { color: #8ab4ff; }
+  .bread { font-size: 12px; color: #5f7297; letter-spacing: 0.5px; }
+  .bread em { font-style: normal; color: #e8e2cf; }
+
+  .hero { padding: 38px 5.4% 22px; border-bottom: 1px solid rgba(201, 184, 134, 0.14); }
+  .hero h1 { margin: 0 0 10px; font-size: 32px; font-weight: 500; color: #f3e8bd; letter-spacing: 3px; }
+  .hero p { margin: 0; color: #a0b4d2; font-size: 13px; letter-spacing: 1px; }
+  .counts { display: flex; gap: 30px; margin-top: 18px; }
+  .counts span b { color: #8ab4ff; font-size: 22px; font-weight: 500; margin-right: 6px; }
+  .counts span small { color: #6f7a90; font-size: 11px; letter-spacing: 1px; }
+
+  .uid {
+    position: absolute;
+    left: 5.4%;
+    bottom: 12px;
+    color: #d4d5d4;
+    font: 10px 'Consolas', 'Cascadia Code', monospace;
+    margin: 0;
+    pointer-events: none;
+  }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 24px; }
+  }
 </style>

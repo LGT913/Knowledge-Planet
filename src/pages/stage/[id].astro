@@ -1,0 +1,105 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import NoteGrid from '../../components/NoteGrid.astro';
+import { stageOf } from '../../data/note-stage.js';
+import { STAGES } from '../../data/stages.js';
+
+export function getStaticPaths() {
+  return STAGES.map((s) => ({ params: { id: s.id }, props: { stage: s } }));
+}
+
+const { stage } = Astro.props;
+
+const notes = (await getCollection('notes', (n) => !n.data.private))
+  .filter((n) => stageOf(n) === stage.id)
+  .sort((a, b) => a.data.title.localeCompare(b.data.title, 'zh-Hans-CN'));
+
+// 学习路线不做专栏分组，直接平铺
+let index = 0;
+const cards = notes.map((n) => ({
+  title: n.data.title,
+  href: `/planet/${n.data.planet}/${n.id.split('/').slice(1).join('/')}`,
+  date: n.data.date.toISOString().slice(0, 10),
+  tags: n.data.tags.filter((t) => !['system', '八股'].includes(t)).slice(0, 3),
+  metaLabel: '',
+  tone: ['tone-a', 'tone-b', 'tone-c', 'tone-d'][index++ % 4],
+}));
+---
+
+<Base title={`${stage.name} · 学习路线`}>
+  <main class="stage-page">
+    <div class="stars" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="back" href="/?view=fate">← 返回学习路线</a>
+      <span class="bread">学习路线 / <em>{stage.name}</em></span>
+    </header>
+
+    <section class="hero">
+      <p class="eyebrow">LEARNING STAGE</p>
+      <h1>{stage.name}</h1>
+      <p class="sub">{stage.sub}</p>
+      <div class="counts"><span><b>{notes.length}</b><small> 篇笔记</small></span></div>
+    </section>
+
+    <NoteGrid notes={cards} mode="flat" total={notes.length} />
+  </main>
+</Base>
+
+<style>
+  .stage-page {
+    position: relative;
+    min-height: 100vh;
+    padding-bottom: 70px;
+    color: #dfe7f4;
+    background: radial-gradient(ellipse at 50% -10%, #1d3059 0%, #0b172e 46%, #030711 100%);
+    font-family: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  }
+
+  .stars {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(1px 1px at 14% 22%, rgba(210, 226, 255, 0.35), transparent),
+      radial-gradient(1px 1px at 38% 68%, rgba(210, 226, 255, 0.22), transparent),
+      radial-gradient(1px 1px at 62% 34%, rgba(226, 236, 255, 0.28), transparent),
+      radial-gradient(1px 1px at 82% 76%, rgba(210, 226, 255, 0.2), transparent);
+    background-size: 540px 540px;
+    opacity: 0.5;
+  }
+
+  .topbar {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 22px 5.4% 0;
+  }
+
+  .back { color: #8fa3c8; font-size: 12px; letter-spacing: 1px; text-decoration: none; }
+  .back:hover { color: #e9d9a8; }
+
+  .bread { font-size: 12px; color: #5f7297; letter-spacing: 0.5px; }
+  .bread em { font-style: normal; color: #e8e2cf; }
+
+  .hero {
+    position: relative;
+    z-index: 2;
+    padding: 36px 5.4% 22px;
+    border-bottom: 1px solid rgba(201, 184, 134, 0.14);
+  }
+
+  .eyebrow { margin: 0 0 10px; font-size: 10px; letter-spacing: 5px; color: rgba(201, 184, 134, 0.6); }
+  .hero h1 { margin: 0 0 8px; font-size: 30px; font-weight: 500; letter-spacing: 3px; color: #f3e8bd; }
+  .sub { margin: 0; color: #9fb3d1; font-size: 13px; letter-spacing: 1px; }
+  .counts { margin-top: 14px; }
+  .counts b { color: #8ab4ff; font-size: 20px; font-weight: 500; margin-right: 6px; }
+  .counts small { color: #6f7a90; font-size: 11px; letter-spacing: 1px; }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 24px; }
+  }
+</style>
