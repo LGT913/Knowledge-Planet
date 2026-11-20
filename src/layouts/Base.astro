@@ -1,0 +1,157 @@
+---
+const { title = '知识星球', description = 'Java 后端 · 学习路线 / 笔记 / 作品集' } = Astro.props;
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    color-scheme: dark;
+    --bg: #05070f;
+    --panel: #0a0f1d;
+    --line: #1b2540;
+    --text: #e8eefc;
+    --muted: #8fa3c8;
+    --dim: #5f7297;
+    --accent: #8ab4ff;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); }
+  a:hover { color: #b6cdff; }
+
+  .container {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 72px 20px 120px;
+  }
+
+  .back {
+    display: inline-block;
+    margin-bottom: 28px;
+    font-size: 13px;
+    color: var(--dim);
+    text-decoration: none;
+    letter-spacing: 0.5px;
+  }
+  .back:hover { color: var(--accent); }
+
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+
+  .note-title {
+    font-size: 30px;
+    line-height: 1.35;
+    margin: 0 0 12px;
+  }
+
+  .note-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: center;
+    color: var(--dim);
+    font-size: 12.5px;
+    margin-bottom: 36px;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  /* Markdown 正文排版 */
+  .prose { font-size: 15.5px; line-height: 1.85; color: #d5deee; }
+  .prose h1, .prose h2, .prose h3, .prose h4 {
+    color: var(--text);
+    line-height: 1.4;
+    margin: 2em 0 0.7em;
+  }
+  .prose h1 { font-size: 26px; }
+  .prose h2 {
+    font-size: 21px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .prose h3 { font-size: 17.5px; }
+  .prose h4 { font-size: 15.5px; color: var(--muted); }
+  .prose p { margin: 0.9em 0; }
+  .prose ul, .prose ol { padding-left: 1.4em; }
+  .prose li { margin: 0.35em 0; }
+  .prose strong { color: #fff; }
+  .prose a { text-decoration: underline; text-underline-offset: 3px; }
+  .prose blockquote {
+    margin: 1.2em 0;
+    padding: 10px 18px;
+    border-left: 3px solid #2c4a86;
+    background: #0a1224;
+    color: #a9bcdd;
+    border-radius: 0 8px 8px 0;
+  }
+  .prose blockquote p { margin: 0.4em 0; }
+  .prose code {
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size: 0.88em;
+    background: #131c31;
+    padding: 2px 6px;
+    border-radius: 5px;
+    color: #9fd0ff;
+  }
+  .prose pre {
+    margin: 1.2em 0;
+    padding: 16px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+  .prose pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.4em 0;
+    font-size: 14px;
+    display: block;
+    overflow-x: auto;
+  }
+  .prose th, .prose td {
+    border: 1px solid var(--line);
+    padding: 9px 12px;
+    text-align: left;
+  }
+  .prose th { background: #0c1424; color: var(--text); font-weight: 600; }
+  .prose tr:nth-child(even) td { background: #080d19; }
+  .prose img { max-width: 100%; height: auto; border-radius: 10px; display: block; margin: 1.2em auto; }
+  .prose hr { border: none; border-top: 1px solid var(--line); margin: 2.4em 0; }
+</style>

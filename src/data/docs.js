@@ -1,0 +1,15 @@
+export const DOC_TITLES = {
+  system: '系统知识',
+  algorithm: '算法笔记',
+  java: 'Java 八股',
+  projects: '项目作品集',
+  growth: '成长随笔',
+  graduation: '毕业设计',
+  'java-basic': 'Java 基础',
+  juc: 'JUC 并发',
+  jvm: 'JVM',
+  mysql: 'MySQL',
+  redis: 'Redis',
+  microservice: '微服务项目',
+  'algo-training': '算法刷题',
+};

@@ -1,0 +1,21 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import UniverseHome from '../components/UniverseHome.vue';
+
+const allNotes = await getCollection('notes', (n) => !n.data.private);
+const notes = allNotes.map((note) => {
+  const planet = note.data.planet;
+  const normalizedId = note.id.replace(/\\/g, '/');
+  const subPath = normalizedId.split('/').slice(1).join('/');
+  return {
+    title: note.data.title,
+    href: `/planet/${planet}/${subPath}`,
+    planet,
+    path: normalizedId,
+  };
+});
+---
+<Base title="星系航图 · 知识星球">
+  <UniverseHome client:load notes={notes} />
+</Base>
