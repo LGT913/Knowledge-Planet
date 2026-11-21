@@ -14,8 +14,21 @@ export function usePanZoom(containerRef, isMobile) {
   let moved = 0;
   let rafId = 0;
   let pendingEvent = null;
+  let moveRafId = 0;
+  let pendingDx = 0;
+  let pendingDy = 0;
 
   const clamp = (v) => Math.min(Math.max(v, MIN_SCALE), MAX_SCALE);
+
+  // 拖拽位移合并到同一帧，避免 pointermove 高频触发时反复写响应式状态
+  const flushMove = () => {
+    moveRafId = 0;
+    if (!pendingDx && !pendingDy) return;
+    state.x += pendingDx;
+    state.y += pendingDy;
+    pendingDx = 0;
+    pendingDy = 0;
+  };
 
   // 以指针位置为锚点缩放，rAF 合并同一帧内的多次滚轮事件
   const applyZoom = () => {
@@ -59,12 +72,18 @@ export function usePanZoom(containerRef, isMobile) {
     lastX = e.clientX;
     lastY = e.clientY;
     moved += Math.abs(dx) + Math.abs(dy);
-    state.x += dx;
-    state.y += dy;
+    pendingDx += dx;
+    pendingDy += dy;
+    if (!moveRafId) moveRafId = requestAnimationFrame(flushMove);
   };
 
   const onPointerUp = (e) => {
     if (e.pointerId !== pointerId) return;
+    if (moveRafId) {
+      cancelAnimationFrame(moveRafId);
+      moveRafId = 0;
+    }
+    flushMove();
     isDragging.value = false;
     pointerId = null;
   };
@@ -87,6 +106,7 @@ export function usePanZoom(containerRef, isMobile) {
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
     if (rafId) cancelAnimationFrame(rafId);
+    if (moveRafId) cancelAnimationFrame(moveRafId);
   });
 
   return { state, isDragging, onPointerDown, isClick };

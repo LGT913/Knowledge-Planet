@@ -52,18 +52,6 @@
         />
       </g>
 
-      <!-- 40 个缓慢漂移粒子 -->
-      <g class="bg-particles">
-        <circle
-          v-for="(p, i) in particles"
-          :key="'particle-' + i"
-          class="particle"
-          :cx="p.x"
-          :cy="p.y"
-          :r="p.r"
-          :style="p.style"
-        />
-      </g>
     </svg>
 
     <!-- 纯装饰宇宙氛围层：位于 bg-canvas 之上、atlas 之下 -->
@@ -87,8 +75,8 @@
       <div class="meteor-item meteor-1"></div>
       <div class="meteor-item meteor-2"></div>
 
-      <!-- 4. 宇宙尘埃粒子 (<= 24 个，rAF 极慢漂浮) -->
-      <div ref="dustContainerRef" class="dust-container">
+      <!-- 4. 宇宙尘埃粒子 (20 个，CSS 极慢漂浮) -->
+      <div class="dust-container">
         <span
           v-for="d in dustList"
           :key="d.id"
@@ -179,11 +167,13 @@
         <ellipse cx="810" cy="520" rx="640" ry="420" transform="rotate(-30 810 520)" class="orbit-solid faint" />
         <ellipse cx="810" cy="520" rx="658" ry="438" transform="rotate(-30 810 520)" class="orbit-dashed faint" />
 
-        <!-- 轨道流动光脉冲（流动光点效果，克制不闪烁） -->
-        <circle cx="610" cy="530" r="320" class="orbit-pulse" />
-        <circle cx="980" cy="500" r="230" class="orbit-pulse" />
-        <ellipse cx="810" cy="520" rx="760" ry="290" transform="rotate(22 810 520)" class="orbit-pulse" />
-        <ellipse cx="810" cy="520" rx="640" ry="420" transform="rotate(-30 810 520)" class="orbit-pulse faint" />
+        <!-- 轨道流动光点：用 transform 旋转的小光点，避免 stroke-dashoffset 逐帧重算 -->
+        <g class="orbit-runner" style="transform-origin: 610px 530px">
+          <circle cx="610" cy="210" r="2.6" />
+        </g>
+        <g class="orbit-runner runner-alt" style="transform-origin: 980px 500px">
+          <circle cx="980" cy="270" r="2.2" />
+        </g>
       </g>
 
       <!-- 航标标记 -->
@@ -593,9 +583,9 @@ function createLcg(initialSeed) {
   };
 }
 
-// 32 个闪烁星点 (6~12s 周期 opacity 变化，不同 animation-delay)
+// 16 个闪烁星点 (6~12s 周期 opacity 变化，不同 animation-delay)
 const twinkleRng = createLcg(5201314);
-const twinkleStars = Array.from({ length: 32 }, (_, i) => {
+const twinkleStars = Array.from({ length: 16 }, (_, i) => {
   const x = (twinkleRng() * 96 + 2).toFixed(1);
   const y = (twinkleRng() * 92 + 4).toFixed(1);
   const size = (twinkleRng() * 1.5 + 1.2).toFixed(1);
@@ -618,14 +608,18 @@ const twinkleStars = Array.from({ length: 32 }, (_, i) => {
   };
 });
 
-// 20 个宇宙尘埃微粒 (rAF 极慢漂浮，只改 transform，速度极慢)
-const DUST_COUNT = 20;
+// 20 个宇宙尘埃微粒：纯 CSS 极慢漂浮（不再用 rAF 逐帧写 style）
+const DUST_COUNT = 12;
 const dustRng = createLcg(7721839);
 const dustList = Array.from({ length: DUST_COUNT }, (_, i) => {
   const x = dustRng() * 100;
   const y = dustRng() * 100;
   const size = (0.8 + dustRng() * 1.6).toFixed(1);
   const opacity = (0.15 + dustRng() * 0.32).toFixed(2);
+  const dx = ((dustRng() - 0.5) * 56).toFixed(0);
+  const dy = ((dustRng() - 0.5) * 44).toFixed(0);
+  const duration = (28 + dustRng() * 32).toFixed(1);
+  const delay = (-dustRng() * 45).toFixed(1);
   return {
     id: `dust-${i}`,
     initStyle: {
@@ -634,69 +628,23 @@ const dustList = Array.from({ length: DUST_COUNT }, (_, i) => {
       width: `${size}px`,
       height: `${size}px`,
       opacity,
+      '--dx': `${dx}px`,
+      '--dy': `${dy}px`,
+      animationDuration: `${duration}s`,
+      animationDelay: `${delay}s`,
     },
   };
 });
-
-// 宇宙尘埃容器引用与 rAF 动画句柄
-const dustContainerRef = ref(null);
-let dustRafId = null;
-
-const initDustRaf = () => {
-  if (typeof window === 'undefined') return;
-  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (prefersReduced) return;
-
-  const dustEls = dustContainerRef.value ? Array.from(dustContainerRef.value.children) : [];
-  if (!dustEls.length) return;
-
-  const isMobileView = window.innerWidth < 768;
-  const activeCount = isMobileView ? Math.floor(dustEls.length / 2) : dustEls.length;
-  for (let i = activeCount; i < dustEls.length; i++) {
-    dustEls[i].style.display = 'none';
-  }
-
-  const dustData = dustEls.slice(0, activeCount).map(() => {
-    const angle = dustRng() * Math.PI * 2;
-    const speed = 0.06 + dustRng() * 0.08; // 极慢漂浮: 0.06 ~ 0.14 px/frame
-    return {
-      x: 0,
-      y: 0,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      maxX: 40,
-      maxY: 30,
-    };
-  });
-
-  const step = () => {
-    for (let i = 0; i < dustData.length; i++) {
-      const p = dustData[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      if (p.x > p.maxX || p.x < -p.maxX) p.vx = -p.vx;
-      if (p.y > p.maxY || p.y < -p.maxY) p.vy = -p.vy;
-      dustEls[i].style.transform = `translate3d(${p.x.toFixed(2)}px, ${p.y.toFixed(2)}px, 0)`;
-    }
-    dustRafId = requestAnimationFrame(step);
-  };
-  dustRafId = requestAnimationFrame(step);
-};
 
 onMounted(() => {
   checkOrientation();
   window.addEventListener('resize', checkOrientation);
   window.addEventListener('orientationchange', checkOrientation);
-  initDustRaf();
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkOrientation);
   window.removeEventListener('orientationchange', checkOrientation);
-  if (dustRafId) {
-    cancelAnimationFrame(dustRafId);
-    dustRafId = null;
-  }
   if (rippleTimer) {
     clearTimeout(rippleTimer);
     rippleTimer = null;
@@ -742,8 +690,8 @@ const GALAXY_ART_CONFIG = {
   },
 };
 
-  // 130 个静态星点
-  const starRng = createLcg(147730179);
+// 130 个静态星点
+const starRng = createLcg(147730179);
 const stars = Array.from({ length: 130 }, () => {
   const x = starRng();
   const y = starRng();
@@ -752,42 +700,6 @@ const stars = Array.from({ length: 130 }, () => {
     y: Math.round(y * 1000 * 10) / 10,
     r: Math.round((0.45 + x * 1.05) * 100) / 100,
     o: Math.round((0.16 + y * 0.52) * 100) / 100,
-  };
-});
-
-// 40 个缓慢漂移粒子：固定种子生成，内联 style 包含位移和明暗呼吸周期
-const particleRng = createLcg(88926310);
-const particles = Array.from({ length: 40 }, () => {
-  const px = particleRng();
-  const py = particleRng();
-  const pr = particleRng();
-  const po = particleRng();
-  const pdur = particleRng();
-  const pdel = particleRng();
-  const pdirX = particleRng();
-  const pdirY = particleRng();
-
-  const r = 0.6 + pr * 1.0; // r: 0.6 ~ 1.6
-  const baseOp = 0.12 + po * 0.18; // 基础透明度: 0.12 ~ 0.30
-  const peakOp = Math.min(0.45, baseOp + 0.1 + po * 0.08); // 峰值透明度: 0.22 ~ 0.45
-  const duration = (15 + pdur * 17).toFixed(1); // 周期 15s ~ 32s 缓慢位移
-  const delay = (-pdel * 24).toFixed(1); // 错开延时 -24s ~ 0s
-  const dx = Math.round((pdirX - 0.5) * 36) + 'px';
-  const dy = Math.round((pdirY - 0.5) * 32) + 'px';
-
-  return {
-    x: Math.round(px * 1600 * 10) / 10,
-    y: Math.round(py * 1000 * 10) / 10,
-    r: Math.round(r * 100) / 100,
-    style: {
-      '--base-op': baseOp.toFixed(2),
-      '--peak-op': peakOp.toFixed(2),
-      '--dx': dx,
-      '--dy': dy,
-      animationDuration: `${duration}s`,
-      animationDelay: `${delay}s`,
-      opacity: baseOp.toFixed(2),
-    },
   };
 });
 
@@ -819,30 +731,6 @@ const orbitMarks = [
   width: 100%;
   height: 100%;
   pointer-events: none;
-}
-
-/* 40 个缓慢漂移与呼吸粒子 */
-.particle {
-  fill: #e8f2ff;
-  animation-name: particle-drift;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-  will-change: transform, opacity;
-}
-
-@keyframes particle-drift {
-  0% {
-    transform: translate(0, 0);
-    opacity: var(--base-op);
-  }
-  50% {
-    transform: translate(var(--dx), var(--dy));
-    opacity: var(--peak-op);
-  }
-  100% {
-    transform: translate(0, 0);
-    opacity: var(--base-op);
-  }
 }
 
 /* 交互 SVG 航图 */
@@ -884,7 +772,6 @@ const orbitMarks = [
     radial-gradient(1px 1px at 260px 470px, rgba(235, 240, 255, 0.6), transparent);
   background-size: 620px 620px;
   opacity: 0.38;
-  animation: drift-far 120s linear infinite;
 }
 
 .star-field-mid {
@@ -938,8 +825,7 @@ const orbitMarks = [
 .twinkle-star {
   position: absolute;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 5px rgba(220, 240, 255, 0.85);
+  background: radial-gradient(circle, #ffffff 0%, rgba(226, 240, 255, 0.9) 45%, rgba(226, 240, 255, 0) 100%);
   animation-name: star-twinkle;
   animation-iteration-count: infinite;
   animation-timing-function: ease-in-out;
@@ -1043,45 +929,50 @@ const orbitMarks = [
 .dust-particle {
   position: absolute;
   border-radius: 50%;
-  background: #cce2ff;
-  box-shadow: 0 0 3px rgba(200, 225, 255, 0.6);
+  background: radial-gradient(circle, #e6f1ff 0%, rgba(204, 226, 255, 0.55) 60%, rgba(204, 226, 255, 0) 100%);
   pointer-events: none;
+  animation: dust-drift 40s ease-in-out infinite;
   will-change: transform;
 }
 
-/* 5. 轨道流动光脉冲 */
-.orbit-pulse {
-  fill: none;
-  stroke: #ffebb0;
-  stroke-width: 1.6px;
-  stroke-linecap: round;
-  stroke-dasharray: 8 460;
-  stroke-opacity: 0.7;
-  filter: drop-shadow(0 0 4px rgba(255, 235, 176, 0.8));
-  animation: orbit-flow-run 45s linear infinite;
-  will-change: stroke-dashoffset;
+@keyframes dust-drift {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(var(--dx, 14px), var(--dy, -10px), 0); }
+}
+
+@media (max-width: 768px) {
+  .dust-particle:nth-child(n + 7) { display: none; }
+}
+
+/* 拖拽/缩放期间暂停装饰动画，把主线程留给 transform */
+.viewport.grabbing .atlas *,
+.viewport.grabbing .cosmic-ambient-layer * {
+  animation-play-state: paused !important;
+}
+
+/* 5. 轨道流动光点（transform 旋转，GPU 友好） */
+.orbit-runner {
+  fill: #ffebb0;
+  animation: runner-spin 34s linear infinite;
+  transform-box: view-box;
+  will-change: transform;
   pointer-events: none;
 }
-.orbit-pulse.faint {
-  stroke: #bde0fe;
-  stroke-width: 1.2px;
-  stroke-dasharray: 6 560;
-  stroke-opacity: 0.45;
-  filter: drop-shadow(0 0 3px rgba(189, 224, 254, 0.6));
-  animation-duration: 60s;
+.orbit-runner.runner-alt {
+  fill: #cfe4ff;
+  animation-duration: 48s;
   animation-direction: reverse;
 }
-@keyframes orbit-flow-run {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -936; }
+@keyframes runner-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* 6 & 7. 星系外圈光晕呼吸与自转 */
 .galaxy-halo {
   fill: none;
-  stroke: rgba(201, 184, 134, 0.52);
-  stroke-width: 1.8px;
-  filter: drop-shadow(0 0 10px rgba(201, 184, 134, 0.55));
+  stroke: rgba(201, 184, 134, 0.6);
+  stroke-width: 2px;
   animation: galaxy-halo-breathe 8s ease-in-out infinite;
   transform-box: fill-box;
   transform-origin: center;
@@ -1096,11 +987,9 @@ const orbitMarks = [
 
 @keyframes galaxy-halo-breathe {
   0%, 100% {
-    transform: scale(0.93);
     opacity: 0.32;
   }
   50% {
-    transform: scale(1.14);
     opacity: 0.92;
   }
 }

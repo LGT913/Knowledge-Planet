@@ -42,18 +42,6 @@
           :opacity="s.o"
         />
       </g>
-      <!-- 40 个缓慢漂移粒子 -->
-      <g class="bg-particles">
-        <circle
-          v-for="(p, i) in particles"
-          :key="'particle-' + i"
-          class="particle"
-          :cx="p.x"
-          :cy="p.y"
-          :r="p.r"
-          :style="p.style"
-        />
-      </g>
     </svg>
 
     <!-- 纯装饰宇宙氛围层：位于 bg-canvas 之上、atlas 之下 -->
@@ -77,8 +65,8 @@
       <div class="meteor-item fate-meteor-upper"></div>
       <div class="meteor-item fate-meteor-lower"></div>
 
-      <!-- 4. 宇宙尘埃粒子 (18 个，rAF 极慢漂浮) -->
-      <div ref="dustContainerRef" class="dust-container">
+      <!-- 4. 宇宙尘埃粒子 (18 个，CSS 极慢漂浮) -->
+      <div class="dust-container">
         <span
           v-for="d in dustList"
           :key="d.id"
@@ -275,9 +263,9 @@ function createLcg(initialSeed) {
   };
 }
 
-// 26 个闪烁微星 (6~12s 周期呼吸)
+// 16 个闪烁微星 (6~12s 周期呼吸)
 const fateTwinkleRng = createLcg(6182943);
-const twinkleStars = Array.from({ length: 26 }, (_, i) => {
+const twinkleStars = Array.from({ length: 16 }, (_, i) => {
   const x = (fateTwinkleRng() * 96 + 2).toFixed(1);
   const y = (fateTwinkleRng() * 92 + 4).toFixed(1);
   const size = (fateTwinkleRng() * 1.5 + 1.2).toFixed(1);
@@ -300,14 +288,18 @@ const twinkleStars = Array.from({ length: 26 }, (_, i) => {
   };
 });
 
-// 18 个宇宙尘埃微粒 (rAF 极慢漂浮，只改 transform)
-const DUST_COUNT = 18;
+// 18 个宇宙尘埃微粒：纯 CSS 极慢漂浮（不再用 rAF 逐帧写 style）
+const DUST_COUNT = 12;
 const fateDustRng = createLcg(4928172);
 const dustList = Array.from({ length: DUST_COUNT }, (_, i) => {
   const x = fateDustRng() * 100;
   const y = fateDustRng() * 100;
   const size = (0.8 + fateDustRng() * 1.5).toFixed(1);
   const opacity = (0.14 + fateDustRng() * 0.3).toFixed(2);
+  const dx = ((fateDustRng() - 0.5) * 52).toFixed(0);
+  const dy = ((fateDustRng() - 0.5) * 40).toFixed(0);
+  const duration = (26 + fateDustRng() * 30).toFixed(1);
+  const delay = (-fateDustRng() * 42).toFixed(1);
   return {
     id: `fate-dust-${i}`,
     initStyle: {
@@ -316,69 +308,23 @@ const dustList = Array.from({ length: DUST_COUNT }, (_, i) => {
       width: `${size}px`,
       height: `${size}px`,
       opacity,
+      '--dx': `${dx}px`,
+      '--dy': `${dy}px`,
+      animationDuration: `${duration}s`,
+      animationDelay: `${delay}s`,
     },
   };
 });
-
-// 宇宙尘埃容器引用与 rAF 动画句柄
-const dustContainerRef = ref(null);
-let dustRafId = null;
-
-const initDustRaf = () => {
-  if (typeof window === 'undefined') return;
-  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (prefersReduced) return;
-
-  const dustEls = dustContainerRef.value ? Array.from(dustContainerRef.value.children) : [];
-  if (!dustEls.length) return;
-
-  const isMobileView = window.innerWidth < 768;
-  const activeCount = isMobileView ? Math.floor(dustEls.length / 2) : dustEls.length;
-  for (let i = activeCount; i < dustEls.length; i++) {
-    dustEls[i].style.display = 'none';
-  }
-
-  const dustData = dustEls.slice(0, activeCount).map(() => {
-    const angle = fateDustRng() * Math.PI * 2;
-    const speed = 0.05 + fateDustRng() * 0.07; // 速度极慢: 0.05 ~ 0.12 px/frame
-    return {
-      x: 0,
-      y: 0,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      maxX: 40,
-      maxY: 30,
-    };
-  });
-
-  const step = () => {
-    for (let i = 0; i < dustData.length; i++) {
-      const p = dustData[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      if (p.x > p.maxX || p.x < -p.maxX) p.vx = -p.vx;
-      if (p.y > p.maxY || p.y < -p.maxY) p.vy = -p.vy;
-      dustEls[i].style.transform = `translate3d(${p.x.toFixed(2)}px, ${p.y.toFixed(2)}px, 0)`;
-    }
-    dustRafId = requestAnimationFrame(step);
-  };
-  dustRafId = requestAnimationFrame(step);
-};
 
 onMounted(() => {
   checkOrientation();
   window.addEventListener('resize', checkOrientation);
   window.addEventListener('orientationchange', checkOrientation);
-  initDustRaf();
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkOrientation);
   window.removeEventListener('orientationchange', checkOrientation);
-  if (dustRafId) {
-    cancelAnimationFrame(dustRafId);
-    dustRafId = null;
-  }
 });
 
 // 固定 10 个阶段定义
@@ -468,42 +414,6 @@ const bgStars = Array.from({ length: 90 }, () => {
     y: Math.round(y * 900),
     r: Number((0.4 + x * 0.9).toFixed(2)),
     o: Number((0.15 + y * 0.45).toFixed(2)),
-  };
-});
-
-// 40 个缓慢漂移粒子：固定种子生成，内联 style 包含位移和明暗呼吸周期（r: 0.6~1.6，透明度: 0.12~0.45）
-const particleRng = createLcg(98245167);
-const particles = Array.from({ length: 40 }, () => {
-  const px = particleRng();
-  const py = particleRng();
-  const pr = particleRng();
-  const po = particleRng();
-  const pdur = particleRng();
-  const pdel = particleRng();
-  const pdirX = particleRng();
-  const pdirY = particleRng();
-
-  const r = 0.6 + pr * 1.0; // r: 0.6 ~ 1.6
-  const baseOp = 0.12 + po * 0.18; // 基础透明度: 0.12 ~ 0.30
-  const peakOp = Math.min(0.45, baseOp + 0.1 + po * 0.08); // 峰值透明度: 0.22 ~ 0.45
-  const duration = (15 + pdur * 17).toFixed(1); // 周期 15s ~ 32s 缓慢位移
-  const delay = (-pdel * 24).toFixed(1); // 错开延时 -24s ~ 0s
-  const dx = Math.round((pdirX - 0.5) * 36) + 'px';
-  const dy = Math.round((pdirY - 0.5) * 32) + 'px';
-
-  return {
-    x: Math.round(px * 2000 * 10) / 10,
-    y: Math.round(py * 900 * 10) / 10,
-    r: Math.round(r * 100) / 100,
-    style: {
-      '--base-op': baseOp.toFixed(2),
-      '--peak-op': peakOp.toFixed(2),
-      '--dx': dx,
-      '--dy': dy,
-      animationDuration: `${duration}s`,
-      animationDelay: `${delay}s`,
-      opacity: baseOp.toFixed(2),
-    },
   };
 });
 
@@ -610,36 +520,18 @@ const stageColumns = computed(() => {
   cursor: grabbing;
 }
 
+/* 拖拽/缩放期间暂停装饰动画，把主线程留给 transform */
+.viewport.grabbing .atlas *,
+.viewport.grabbing .cosmic-ambient-layer * {
+  animation-play-state: paused !important;
+}
+
 .bg-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-}
-
-/* 40 个缓慢漂移与呼吸粒子 */
-.particle {
-  fill: #e8f2ff;
-  animation-name: particle-drift;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-  will-change: transform, opacity;
-}
-
-@keyframes particle-drift {
-  0% {
-    transform: translate(0, 0);
-    opacity: var(--base-op);
-  }
-  50% {
-    transform: translate(var(--dx), var(--dy));
-    opacity: var(--peak-op);
-  }
-  100% {
-    transform: translate(0, 0);
-    opacity: var(--base-op);
-  }
 }
 
 .atlas {
@@ -732,8 +624,7 @@ const stageColumns = computed(() => {
 .twinkle-star {
   position: absolute;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 5px rgba(220, 240, 255, 0.85);
+  background: radial-gradient(circle, #ffffff 0%, rgba(226, 240, 255, 0.9) 45%, rgba(226, 240, 255, 0) 100%);
   animation-name: star-twinkle;
   animation-iteration-count: infinite;
   animation-timing-function: ease-in-out;
@@ -837,10 +728,19 @@ const stageColumns = computed(() => {
 .dust-particle {
   position: absolute;
   border-radius: 50%;
-  background: #cce2ff;
-  box-shadow: 0 0 3px rgba(200, 225, 255, 0.6);
+  background: radial-gradient(circle, #e6f1ff 0%, rgba(204, 226, 255, 0.55) 60%, rgba(204, 226, 255, 0) 100%);
   pointer-events: none;
+  animation: dust-drift 40s ease-in-out infinite;
   will-change: transform;
+}
+
+@keyframes dust-drift {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(var(--dx, 12px), var(--dy, -8px), 0); }
+}
+
+@media (max-width: 768px) {
+  .dust-particle:nth-child(n + 10) { display: none; }
 }
 
 .frame {
